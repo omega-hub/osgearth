@@ -102,7 +102,7 @@ VerticalDatum::transform(const VerticalDatum* from,
     }
 
     Units fromUnits = from ? from->getUnits() : Units::METERS;
-    Units toUnits = to ? to->getUnits() : fromUnits;
+    Units toUnits = to ? to->getUnits() : Units::METERS;
 
     in_out_z = fromUnits.convertTo(toUnits, in_out_z);
 
@@ -161,7 +161,10 @@ VerticalDatum::transform(const VerticalDatum* from,
         {
             double lat = sw.y() + ystep*double(r);
             float& h = hf->getHeight(c, r);
-            VerticalDatum::transform( from, to, lat, lon, h );
+            if (h != NO_DATA_VALUE)
+            {
+                VerticalDatum::transform( from, to, lat, lon, h );
+            }
         }
     }
 

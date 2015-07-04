@@ -71,9 +71,7 @@ namespace
     void flyToViewpoint(EarthManipulator* manip, const Viewpoint& vp)
     {
         Viewpoint currentVP = manip->getViewpoint();
-        GeoPoint vp0(currentVP.getSRS(), currentVP.getFocalPoint(), ALTMODE_ABSOLUTE);
-        GeoPoint vp1(vp.getSRS(), vp.getFocalPoint(), ALTMODE_ABSOLUTE);
-        double distance = vp0.distanceTo(vp1);
+        double distance = currentVP.focalPoint()->distanceTo(currentVP.focalPoint().get());
         double duration = osg::clampBetween(distance / VP_METERS_PER_SECOND, VP_MIN_DURATION, VP_MAX_DURATION);
         manip->setViewpoint( vp, duration );
     }
@@ -689,11 +687,12 @@ MapNodeHelper::parse(MapNode*             mapNode,
     // Configure for an ortho camera:
     if ( useOrtho )
     {
-        EarthManipulator* manip = dynamic_cast<EarthManipulator*>(view->getCameraManipulator());
-        if ( manip )
-        {
-            manip->getSettings()->setCameraProjection( EarthManipulator::PROJ_ORTHOGRAPHIC );
-        }
+        view->getCamera()->setProjectionMatrixAsOrtho(-1, 1, -1, 1, 0, 1);
+        //EarthManipulator* manip = dynamic_cast<EarthManipulator*>(view->getCameraManipulator());
+        //if ( manip )
+        //{
+        //    manip->getSettings()->setCameraProjection( EarthManipulator::PROJ_ORTHOGRAPHIC );
+        //}
     }
 
     // activity monitor (debugging)
@@ -716,17 +715,17 @@ MapNodeHelper::parse(MapNode*             mapNode,
     // Install logarithmic depth buffer on main camera
     if ( useLogDepth )
     {
-        OE_INFO << LC << "Activating logarithmic depth buffer on main camera" << std::endl;
+        OE_INFO << LC << "Activating logarithmic depth buffer (vertex-only) on main camera" << std::endl;
         osgEarth::Util::LogarithmicDepthBuffer logDepth;
-        logDepth.setUseFragDepth( true );
+        logDepth.setUseFragDepth( false );
         logDepth.install( view->getCamera() );
     }
 
     else if ( useLogDepth2 )
     {
-        OE_INFO << LC << "Activating logarithmic depth buffer (vertex-only) on main camera" << std::endl;
+        OE_INFO << LC << "Activating logarithmic depth buffer (precise) on main camera" << std::endl;
         osgEarth::Util::LogarithmicDepthBuffer logDepth;
-        logDepth.setUseFragDepth( false );
+        logDepth.setUseFragDepth( true );
         logDepth.install( view->getCamera() );
     }
 

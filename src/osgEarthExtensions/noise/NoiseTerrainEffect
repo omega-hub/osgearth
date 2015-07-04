@@ -16,31 +16,25 @@
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
-#ifndef OSGEARTH_GRATICULE_TERRAIN_EFFECT_H
-#define OSGEARTH_GRATICULE_TERRAIN_EFFECT_H
-
-#include "GraticuleOptions"
+#ifndef OSGEARTH_NOISE_TERRAIN_EFFECT_H
+#define OSGEARTH_NOISE_TERRAIN_EFFECT_H
 
 #include <osgEarth/TerrainEffect>
-#include <osgEarth/ImageLayer>
-#include <osg/Image>
 #include <osg/Uniform>
 #include <osg/Texture2D>
 
 using namespace osgEarth;
 
-namespace osgEarth { namespace Graticule
+namespace osgEarth { namespace Noise
 {
     /**
-     * Effect that applies normal mapping to the terrain.
+     * Effect that activates a multi-resolution noise texture on the terrain.
      */
-    class GraticuleTerrainEffect : public TerrainEffect
+    class NoiseTerrainEffect : public TerrainEffect
     {
     public:
         /** construct a new terrain effect. */
-        GraticuleTerrainEffect(
-            const GraticuleOptions& options,
-            const osgDB::Options*   dbOptions);
+        NoiseTerrainEffect(const osgDB::Options* dbOptions);
 
 
     public: // TerrainEffect interface
@@ -51,10 +45,15 @@ namespace osgEarth { namespace Graticule
 
 
     protected:
-        const GraticuleOptions _options;
-        virtual ~GraticuleTerrainEffect() { }
+        virtual ~NoiseTerrainEffect() { }
+
+        osg::Texture* createNoiseTexture() const;
+
+        int                          _texImageUnit;
+        osg::ref_ptr<osg::Texture>   _tex;
+        osg::ref_ptr<osg::Uniform>   _samplerUniform;
     };
 
-} } // namespace osgEarth::Graticule
+} } // namespace osgEarth::Noise
 
-#endif // OSGEARTH_GRATICULE_TERRAIN_EFFECT_H
+#endif // OSGEARTH_NOISE_TERRAIN_EFFECT_H

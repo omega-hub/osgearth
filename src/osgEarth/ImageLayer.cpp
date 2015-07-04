@@ -117,6 +117,10 @@ ImageLayerOptions::fromConfig( const Config& conf )
     conf.getIfSet("texture_compression", "auto", _texcomp, (osg::Texture::InternalFormatMode)~0);
     conf.getIfSet("texture_compression", "fastdxt", _texcomp, (osg::Texture::InternalFormatMode)(~0 - 1));
     //TODO add all the enums
+
+    // uniform names
+    conf.getIfSet("shared_sampler", _shareTexUniformName);
+    conf.getIfSet("shared_matrix",  _shareTexMatUniformName);
 }
 
 Config
@@ -140,7 +144,8 @@ ImageLayerOptions::getConfig( bool isolate ) const
         Config filtersConf("color_filters");
         if ( ColorFilterRegistry::instance()->writeChain( _colorFilters, filtersConf ) )
         {
-            conf.add( filtersConf );
+            conf.update( filtersConf );
+            //conf.add( filtersConf );
         }
     }
 
@@ -162,6 +167,10 @@ ImageLayerOptions::getConfig( bool isolate ) const
     conf.updateIfSet("texture_compression", "on",   _texcomp, (osg::Texture::InternalFormatMode)~0);
     conf.updateIfSet("texture_compression", "fastdxt", _texcomp, (osg::Texture::InternalFormatMode)(~0 - 1));
     //TODO add all the enums
+
+    // uniform names
+    conf.updateIfSet("shared_sampler", _shareTexUniformName);
+    conf.updateIfSet("shared_matrix",  _shareTexMatUniformName);
 
     return conf;
 }
@@ -299,6 +308,12 @@ ImageLayer::init()
 
     _emptyImage = ImageUtils::createEmptyImage();
     //*((unsigned*)_emptyImage->data()) = 0x7F0000FF;
+
+    if ( _runtimeOptions.shareTexUniformName().isSet() )
+        _shareTexUniformName = _runtimeOptions.shareTexUniformName().get();
+
+    if ( _runtimeOptions.shareTexMatUniformName().isSet() )
+        _shareTexMatUniformName = _runtimeOptions.shareTexMatUniformName().get();
 }
 
 void
@@ -387,32 +402,29 @@ ImageLayer::setTargetProfileHint( const Profile* profile )
     TerrainLayer::setTargetProfileHint( profile );
 
     // if we've already constructed the pre-cache operation, reinitialize it.
-    if ( _preCacheOp.valid() )
-        initPreCacheOp();
+    _preCacheOp = 0L;
 }
 
-void
-ImageLayer::initTileSource()
+TileSource::ImageOperation*
+ImageLayer::getOrCreatePreCacheOp()
 {
-    // call superclass first.
-    TerrainLayer::initTileSource();
+    if ( !_preCacheOp.valid() )
+    {
+        Threading::ScopedMutexLock lock(_mutex);
+        if ( !_preCacheOp.valid() )
+        {
+            bool layerInTargetProfile = 
+                _targetProfileHint.valid() &&
+                getProfile()               &&
+                _targetProfileHint->isEquivalentTo( getProfile() );
 
-    // install the pre-caching image processor operation.
-    initPreCacheOp();
-}
+            ImageLayerPreCacheOperation* op = new ImageLayerPreCacheOperation();
+            op->_processor.init( _runtimeOptions, _dbOptions.get(), layerInTargetProfile );
 
-void
-ImageLayer::initPreCacheOp()
-{
-    bool layerInTargetProfile = 
-        _targetProfileHint.valid() &&
-        getProfile()               &&
-        _targetProfileHint->isEquivalentTo( getProfile() );
-
-    ImageLayerPreCacheOperation* op = new ImageLayerPreCacheOperation();
-    op->_processor.init( _runtimeOptions, _dbOptions.get(), layerInTargetProfile );
-
-    _preCacheOp = op;
+            _preCacheOp = op;
+        }
+    }
+    return _preCacheOp.get();
 }
 
 
@@ -651,7 +663,7 @@ ImageLayer::createImageFromTileSource(const TileKey&    key,
     }
 
     // Good to go, ask the tile source for an image:
-    osg::ref_ptr<TileSource::ImageOperation> op = _preCacheOp;
+    osg::ref_ptr<TileSource::ImageOperation> op = getOrCreatePreCacheOp();
 
     // Fail is the image is blacklisted.
     if ( source->getBlacklist()->contains(key) )

@@ -19,23 +19,63 @@
 #include "GraticuleNode"
 
 using namespace osgEarth;
-using namespace osgEarth::Graticule;
+using namespace osgEarth::Util;
 
 #define LC "[GraticuleNode] "
 
 
-GraticuleNode::GraticuleNode(MapNode* mapNode, GraticuleTerrainEffect* effect, const GraticuleOptions& options):
+GraticuleNode::GraticuleNode(MapNode* mapNode, const GraticuleOptions& options):
 _mapNode(mapNode),
-    _effect(effect),
-    _resolution(options.maxResolution().get()),
-    _maxResolution(options.maxResolution().get()),
+    _resolution(10.0/180.0),
     _options(options),
     _lat(0.0),
     _lon(0.0),
     _viewExtent(osgEarth::SpatialReference::create("wgs84"), -180, -90, 180, 90),
-    _visible(true)
+    _visible(true),
+    _metersPerPixel(0.0)
 {
     setNumChildrenRequiringUpdateTraversal(1);
+
+    // Read the resolutions from the config.
+    if (options.resolutions().isSet())
+    {
+        StringTokenizer tok(" ");
+        StringVector tokens;
+        tok.tokenize(*options.resolutions(), tokens);
+        for (unsigned int i = 0; i < tokens.size(); i++)
+        {
+            double r = as<double>(tokens[i], -1.0);
+            if (r > 0) 
+            {
+                _resolutions.push_back( r );
+            }
+        }
+    }
+
+    if (_resolutions.empty())
+    {
+        // Initialize the resolutions
+        _resolutions.push_back( 10.0 );
+        _resolutions.push_back( 5.0 );
+        _resolutions.push_back( 2.5 );
+        _resolutions.push_back( 1.0 );
+        _resolutions.push_back( 0.5 );
+        _resolutions.push_back( 0.25 );
+        _resolutions.push_back( 0.125 );
+        _resolutions.push_back( 0.0625 );
+        _resolutions.push_back( 0.03125 );
+
+    }
+
+    // Divide all the resolutions by 180 so they match up with the terrain effects concept of resolutions
+    for (unsigned int i = 0; i < _resolutions.size(); i++)
+    {
+        _resolutions[i] /= 180.0;
+    }
+
+    // Create the effect and add it to the MapNode.
+    _effect = new GraticuleTerrainEffect( options, 0 );
+    _mapNode->getTerrainEngine()->addEffect( _effect );
 
     // Initialize the formatter
     _formatter = new LatLongFormatter(osgEarth::Util::LatLongFormatter::FORMAT_DEGREES_MINUTES_SECONDS_TERSE, LatLongFormatter::USE_SYMBOLS |LatLongFormatter::USE_PREFIXES);
@@ -49,7 +89,11 @@ _mapNode(mapNode),
 
 GraticuleNode::~GraticuleNode()
 {
-    //nop
+    osg::ref_ptr< MapNode > mapNode = _mapNode.get();
+    if ( mapNode.valid() )
+    {
+        mapNode->getTerrainEngine()->removeEffect( _effect );
+    }
 }
 
 bool GraticuleNode::getVisible() const
@@ -87,7 +131,7 @@ void GraticuleNode::initLabelPool()
     text->alignment() = TextSymbol::ALIGN_CENTER_CENTER;
     text->fill()->color() = _options.labelColor().get();
     AltitudeSymbol* alt = style.getOrCreateSymbol<AltitudeSymbol>();
-    alt->clamping() = AltitudeSymbol::Clamping::CLAMP_TO_TERRAIN;
+    alt->clamping() = AltitudeSymbol::CLAMP_TO_TERRAIN;
 
     unsigned int labelPoolSize = 8 * _options.gridLines().get();
     for (unsigned int i = 0; i < labelPoolSize; i++)
@@ -98,6 +142,26 @@ void GraticuleNode::initLabelPool()
         label->setStyle(style);
         _labelPool.push_back(label);
         addChild(label);
+    }
+}
+
+std::vector< double >& GraticuleNode::getResolutions()
+{
+    return _resolutions;
+}
+
+const osg::Vec2f& GraticuleNode::getCenterOffset() const
+{
+    return _centerOffset;
+}
+
+
+void GraticuleNode::setCenterOffset(const osg::Vec2f& offset)
+{
+    if (_centerOffset != offset)
+    {
+        _centerOffset = offset;
+        updateLabels();
     }
 }
 
@@ -129,10 +193,9 @@ void GraticuleNode::updateLabels()
         _labelPool[i]->setNodeMask(0);
     }
 
-
-
-
-    
+    // Approximate offset in degrees
+    double degOffset = _metersPerPixel / 111000.0;
+     
     unsigned int labelIndex = 0;
 
 
@@ -149,7 +212,7 @@ void GraticuleNode::updateLabels()
         // Generate horizontal labels
         for (unsigned int i = minLonIndex; i <= maxLonIndex; i++)
         {
-            GeoPoint point(srs, -180.0 + (double)i * resDegrees, _lat, 0, ALTMODE_ABSOLUTE);
+            GeoPoint point(srs, -180.0 + (double)i * resDegrees, _lat + (_centerOffset.y() * degOffset), 0, ALTMODE_ABSOLUTE);
             LabelNode* label = _labelPool[labelIndex++];
 
             label->setNodeMask(~0u);
@@ -167,7 +230,12 @@ void GraticuleNode::updateLabels()
         // Generate the vertical labels
         for (unsigned int i = minLatIndex; i <= maxLatIndex; i++)
         {
-            GeoPoint point(srs, _lon, -90.0 + (double)i * resDegrees, 0, ALTMODE_ABSOLUTE);
+            GeoPoint point(srs, _lon + (_centerOffset.x() * degOffset), -90.0 + (double)i * resDegrees, 0, ALTMODE_ABSOLUTE);
+            // Skip drawing labels at the poles
+            if (osg::equivalent(osg::absolute( point.y()), 90.0, 0.1))
+            {
+                continue;
+            }
             LabelNode* label = _labelPool[labelIndex++];
             label->setNodeMask(~0u);
             label->setPosition(point);
@@ -199,33 +267,54 @@ void GraticuleNode::traverse(osg::NodeVisitor& nv)
         _lon = eyeGeo.x();
         _lat = eyeGeo.y();
 
-        osg::Viewport* viewport = cv->getCurrentCamera()->getViewport();
+        osg::Viewport* viewport = cv->getViewport();
 
         float centerX = viewport->x() + viewport->width() / 2.0;
         float centerY = viewport->y() + viewport->height() / 2.0;
 
-        if (_mapNode->getTerrain()->getWorldCoordsUnderMouse(cv->getCurrentCamera()->getView(), centerX, centerY, _focalPoint))
+        float offsetCenterX = centerX;
+        float offsetCenterY = centerY;
+
+        bool hitValid = false;
+
+        // Try the center of the screen.
+        if(_mapNode->getTerrain()->getWorldCoordsUnderMouse(cv->getCurrentCamera()->getView(), centerX, centerY, _focalPoint))
+        {
+            hitValid = true;
+        }
+
+        if (hitValid)
         {
             GeoPoint focalGeo;
             focalGeo.fromWorld( _mapNode->getMapSRS(), _focalPoint );
             _lon = focalGeo.x();
             _lat = focalGeo.y();
         }
-
+       
     
         double targetResolution = (_viewExtent.height() / 180.0) / _options.gridLines().get();
 
-        double resolution = _maxResolution;
-        while (resolution  > targetResolution)
+        double resolution = _resolutions[0];
+        for (unsigned int i = 0; i < _resolutions.size(); i++)
         {
-            resolution /= 2.0;
+            resolution = _resolutions[i];
+            if (resolution <= targetResolution)
+            {
+                break;
+            }
         }
-        
 
         // Trippy
         //resolution = targetResolution;
 
-        _viewExtent = getViewExtent( cv->getCurrentCamera() );
+        _viewExtent = getViewExtent( cv );
+
+        // Try to compute an approximate meters to pixel value at this view.
+        double fovy, aspectRatio, zNear, zFar;
+        cv->getProjectionMatrix()->getPerspective(fovy, aspectRatio, zNear, zFar);
+        double dist = osg::clampAbove(eyeGeo.z(), 1.0);
+        double halfWidth = osg::absolute( tan(osg::DegreesToRadians(fovy/2.0)) * dist );
+        _metersPerPixel = (2.0 * halfWidth) / (double)viewport->height();
 
         if (_resolution != resolution)
         {
@@ -255,11 +344,11 @@ std::string GraticuleNode::getText(const GeoPoint& location, bool lat)
     return _formatter->format(value, lat);
 }
 
-osgEarth::GeoExtent GraticuleNode::getViewExtent(osg::Camera* camera)
+osgEarth::GeoExtent GraticuleNode::getViewExtent(osgUtil::CullVisitor* cullVisitor)
 {
     // Get the corners of all points on the view frustum.  Mostly modified from osgthirdpersonview
-    osg::Matrixd proj = camera->getProjectionMatrix();
-    osg::Matrixd mv = camera->getViewMatrix();
+    osg::Matrixd proj = *cullVisitor->getProjectionMatrix();
+    osg::Matrixd mv = *cullVisitor->getModelViewMatrix();
     osg::Matrixd invmv = osg::Matrixd::inverse( mv );
 
     double nearPlane = proj(3,2) / (proj(2,2)-1.0);
@@ -309,6 +398,10 @@ osgEarth::GeoExtent GraticuleNode::getViewExtent(osg::Camera* camera)
     center.fromWorld(srs, bs.center());
 
     double radiusDegrees = bs.radius() /= 111000.0;
+    
+    // Try to clamp the maximum radius so far out views don't go wacky.
+    radiusDegrees = osg::minimum(radiusDegrees, 90.0);
+
     double minLon = center.x() - radiusDegrees;
     double minLat = osg::clampAbove(center.y() - radiusDegrees, -90.0);
     double maxLon = center.x() + radiusDegrees;

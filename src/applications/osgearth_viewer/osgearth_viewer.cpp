@@ -22,6 +22,9 @@
 #include <osgEarthUtil/EarthManipulator>
 #include <osgEarthUtil/ExampleResources>
 
+#include <osgEarth/Units>
+#include <osgEarth/Viewpoint>
+
 #define LC "[viewer] "
 
 using namespace osgEarth;
@@ -65,7 +68,6 @@ main(int argc, char** argv)
     {
         viewer.setSceneData( node );
 
-        viewer.getCamera()->setNearFarRatio(0.00002);
         viewer.getCamera()->setSmallFeatureCullingPixelSize(-1.0f);
 
         return viewer.run();

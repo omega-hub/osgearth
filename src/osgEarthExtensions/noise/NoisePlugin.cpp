@@ -16,41 +16,41 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
-#include "GraticuleOptions"
-#include "GraticuleExtension"
+#include "NoiseOptions"
+#include "NoiseExtension"
 
 #include <osgDB/ReaderWriter>
 #include <osgDB/Registry>
 #include <osgDB/FileNameUtils>
 
-namespace osgEarth { namespace Graticule
+namespace osgEarth { namespace Noise
 {
     /**
      * Plugin entry point
      */
-    class GraticulePlugin : public osgDB::ReaderWriter
+    class NoisePlugin : public osgDB::ReaderWriter
     {
     public: // Plugin stuff
 
-        GraticulePlugin() {
-            supportsExtension( "osgearth_graticule", "osgEarth Graticule Extension" );
+        NoisePlugin() {
+            supportsExtension( "osgearth_noise", "osgEarth Noise Generator Extension" );
         }
         
         const char* className() {
-            return "osgEarth Graticule Extension";
+            return "osgEarth Noise Generator Extension";
         }
 
-        virtual ~GraticulePlugin() { }
+        virtual ~NoisePlugin() { }
 
         ReadResult readObject(const std::string& filename, const osgDB::Options* dbOptions) const
         {
           if ( !acceptsExtension(osgDB::getLowerCaseFileExtension(filename)) )
                 return ReadResult::FILE_NOT_HANDLED;
 
-          return ReadResult( new GraticuleExtension(Extension::getConfigOptions(dbOptions)) );
+          return ReadResult( new NoiseExtension(Extension::getConfigOptions(dbOptions)) );
         }
     };
 
-    REGISTER_OSGPLUGIN(osgearth_graticule, GraticulePlugin)
+    REGISTER_OSGPLUGIN(osgearth_noise, NoisePlugin)
 
-} } // namespace osgEarth::Graticule
+} } // namespace osgEarth::Noise

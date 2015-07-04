@@ -16,42 +16,39 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
-#include "GraticuleExtension"
-#include "GraticuleTerrainEffect"
-#include "GraticuleNode"
-
-#include <osgEarth/MapNode>
+#include "NoiseExtension"
+#include "NoiseTerrainEffect"
 
 using namespace osgEarth;
-using namespace osgEarth::Graticule;
+using namespace osgEarth::Noise;
 
-#define LC "[GraticuleExtension] "
+#define LC "[NoiseExtension] "
 
 
-GraticuleExtension::GraticuleExtension()
+NoiseExtension::NoiseExtension()
 {
     //nop
 }
 
-GraticuleExtension::GraticuleExtension(const GraticuleOptions& options) :
+NoiseExtension::NoiseExtension(const NoiseOptions& options) :
 _options( options )
 {
     //nop
 }
 
-GraticuleExtension::~GraticuleExtension()
+NoiseExtension::~NoiseExtension()
 {
     //nop
 }
 
 void
-GraticuleExtension::setDBOptions(const osgDB::Options* dbOptions)
+NoiseExtension::setDBOptions(const osgDB::Options* dbOptions)
 {
     _dbOptions = dbOptions;
 }
 
 bool
-GraticuleExtension::connect(MapNode* mapNode)
+NoiseExtension::connect(MapNode* mapNode)
 {
     if ( !mapNode )
     {
@@ -59,11 +56,9 @@ GraticuleExtension::connect(MapNode* mapNode)
         return false;
     }
 
-    _effect = new GraticuleTerrainEffect( _options, _dbOptions.get() );
-    mapNode->getTerrainEngine()->addEffect( _effect.get() );
+    _effect = new NoiseTerrainEffect( _dbOptions.get() );
 
-    _node = new GraticuleNode(mapNode, _effect.get(), _options);
-    mapNode->addChild(_node.get());
+    mapNode->getTerrainEngine()->addEffect( _effect.get() );
     
     OE_INFO << LC << "Installed!\n";
 
@@ -71,15 +66,13 @@ GraticuleExtension::connect(MapNode* mapNode)
 }
 
 bool
-GraticuleExtension::disconnect(MapNode* mapNode)
+NoiseExtension::disconnect(MapNode* mapNode)
 {
     if ( mapNode )
     {
         mapNode->getTerrainEngine()->removeEffect( _effect.get() );
-        mapNode->removeChild(_node.get());
     }
     _effect = 0L;
-    _node = 0L;
     return true;
 }
 
