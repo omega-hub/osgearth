@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2015 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -261,7 +264,9 @@ MPGeometry::renderPrimitiveSets(osg::State& state,
             for(first = _layers.size()-1; first > 0; --first)
             {
                 const Layer& layer = _layers[first];
-                if (layer._opaque && 
+                if (layer._opaque &&
+                    //Color filters can modify the opacity
+                    layer._imageLayer->getColorFilters().empty() &&
                     layer._imageLayer->getVisible() &&
                     layer._imageLayer->getOpacity() >= 1.0f)
                 {
@@ -433,22 +438,13 @@ MPGeometry:: COMPUTE_BOUND() const
         // update the uniform.
         Threading::ScopedMutexLock exclusive(_frameSyncMutex);
         _tileKeyValue.w() = bbox.radius();
-        
-#if 0
-        // make sure everyone's got a vbo.
-        MPGeometry* ncthis = const_cast<MPGeometry*>(this);
 
-        for(std::vector<Layer>::iterator i = _layers.begin(); i != _layers.end(); ++i)
+        // create the patch triangles index if necessary.
+        if ( getNumPrimitiveSets() > 0 && getPrimitiveSet(0)->getMode() == GL_PATCHES )
         {
-            if ( i->_texCoords.valid() && i->_texCoords->getVertexBufferObject() == 0L )
-                i->_texCoords->setVertexBufferObject( ncthis->getVertexArray()->getVertexBufferObject() );
+            _patchTriangles = osg::clone( getPrimitiveSet(0), osg::CopyOp::SHALLOW_COPY );
+            _patchTriangles->setMode( GL_TRIANGLES );
         }
-
-        if ( _tileCoords.valid() && _tileCoords->getVertexBufferObject() == 0L )
-        {
-            _tileCoords->setVertexBufferObject( ncthis->getVertexArray()->getVertexBufferObject() );
-        }
-#endif
     }
     return bbox;
 }
@@ -649,4 +645,26 @@ MPGeometry::drawImplementation(osg::RenderInfo& renderInfo) const
     // unbind the VBO's if any are used.
     state.unbindVertexBufferObject();
     state.unbindElementBufferObject();
+}
+
+void
+MPGeometry::accept(osg::PrimitiveIndexFunctor& functor) const
+{
+    osg::Geometry::accept(functor);
+
+    if ( getNumPrimitiveSets() > 0 && getPrimitiveSet(0)->getMode() == GL_PATCHES && _patchTriangles.valid() )
+    {
+        _patchTriangles->accept( functor );
+    }
+}
+
+void
+MPGeometry::accept(osg::PrimitiveFunctor& functor) const
+{
+    osg::Geometry::accept(functor);
+
+    if ( getNumPrimitiveSets() > 0 && getPrimitiveSet(0)->getMode() == GL_PATCHES && _patchTriangles.valid() )
+    {
+        _patchTriangles->accept( functor );
+    }
 }

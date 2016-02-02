@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -77,6 +77,10 @@ AltitudeFilter::pushAndDontClamp( FeatureList& features, FilterContext& cx )
         _altitude.valid() &&
         _altitude->technique() == _altitude->TECHNIQUE_GPU;
 
+    bool ignoreZ =
+        gpuClamping && 
+        _altitude->clamping() == _altitude->CLAMP_TO_TERRAIN;
+
     for( FeatureList::iterator i = features.begin(); i != features.end(); ++i )
     {
         Feature* feature = i->get();
@@ -95,9 +99,9 @@ AltitudeFilter::pushAndDontClamp( FeatureList& features, FilterContext& cx )
         if ( _altitude.valid() && _altitude->verticalScale().isSet() )
             scaleZ = feature->eval( scaleExpr, &cx );
 
-        double offsetZ = 0.0;
+        optional<double> offsetZ( 0.0 );
         if ( _altitude.valid() && _altitude->verticalOffset().isSet() )
-            offsetZ = feature->eval( offsetExpr, &cx );
+            offsetZ = feature->eval( offsetExpr, &cx );       
         
         GeometryIterator gi( feature->getGeometry() );
         while( gi.hasMore() )
@@ -105,10 +109,15 @@ AltitudeFilter::pushAndDontClamp( FeatureList& features, FilterContext& cx )
             Geometry* geom = gi.next();
             for( Geometry::iterator g = geom->begin(); g != geom->end(); ++g )
             {
+                if ( ignoreZ )
+                {
+                    g->z() = 0.0;
+                }
+
                 if ( !gpuClamping )
                 {
                     g->z() *= scaleZ;
-                    g->z() += offsetZ;
+                    g->z() += offsetZ.get();
                 }
 
                 if ( g->z() < minHAT )
@@ -128,7 +137,7 @@ AltitudeFilter::pushAndDontClamp( FeatureList& features, FilterContext& cx )
         if ( gpuClamping )
         {
             feature->set("__oe_verticalScale",  scaleZ);
-            feature->set("__oe_verticalOffset", offsetZ);
+            feature->set("__oe_verticalOffset", offsetZ.get());
         }
     }
 }
@@ -148,6 +157,9 @@ AltitudeFilter::pushAndClamp( FeatureList& features, FilterContext& cx )
 
     // establish an elevation query interface based on the features' SRS.
     ElevationQuery eq( mapf );
+
+    // want a result even if it's low res
+    eq.setFallBackOnNoData( true );
 
     NumericExpression scaleExpr;
     if ( _altitude->verticalScale().isSet() )
@@ -169,7 +181,6 @@ AltitudeFilter::pushAndClamp( FeatureList& features, FilterContext& cx )
     // whether the SRS's have a compatible vertical datum.
     bool vertEquiv =
         featureSRS->isVertEquivalentTo( mapSRS );
-
 
 
     for( FeatureList::iterator i = features.begin(); i != features.end(); ++i )

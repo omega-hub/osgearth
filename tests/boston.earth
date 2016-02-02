@@ -7,6 +7,10 @@ to extruded buildings.
 
 <map name="Boston Demo" type="geocentric" version="2">
     
+    <options>
+        <terrain driver="mp"/>
+    </options>
+    
     <image name="readymap_imagery" driver="tms">
         <url>http://readymap.org/readymap/tiles/1.0.0/22/</url>
     </image>
@@ -91,6 +95,7 @@ to extruded buildings.
                     stroke-width:                 7.5m;
                     altitude-clamping:            terrain;
                     render-depth-offset-min-bias: 3.6;
+                    render-transparent:           true;
                 }
             </style>
         </styles>        
@@ -148,6 +153,7 @@ to extruded buildings.
                    model-density:          3000;
 				   model-heading:          Math.random() * 360.0;
                    altitude-clamping:      terrain;
+                   render-transparent:     true;
 				   render-min-alpha:       0.15;
                 }
             </style>

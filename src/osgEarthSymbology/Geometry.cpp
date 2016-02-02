@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2015 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -102,7 +105,7 @@ Geometry::cloneAs( const Geometry::Type& newType ) const
 }
 
 osg::Vec3Array*
-Geometry::toVec3Array() const 
+Geometry::createVec3Array() const 
 {
     osg::Vec3Array* result = new osg::Vec3Array( this->size() );
     std::copy( begin(), end(), result->begin() );
@@ -110,7 +113,7 @@ Geometry::toVec3Array() const
 }
 
 osg::Vec3dArray*
-Geometry::toVec3dArray() const 
+Geometry::createVec3dArray() const 
 {
     osg::Vec3dArray* result = new osg::Vec3dArray( this->size() );
     std::copy( begin(), end(), result->begin() );
@@ -494,6 +497,30 @@ void Geometry::removeDuplicates()
     }
 }
 
+void
+Geometry::removeColinearPoints()
+{
+    if ( size() >= 3 )
+    {
+        std::vector<unsigned> ind;
+
+        for(unsigned i=0; i<size()-2; ++i)
+        {
+            osg::Vec3d v0( at(i+1) - at(i) );
+            v0.normalize();
+            osg::Vec3d v1( at(i+2) - at(i) );
+            v1.normalize();
+            if ( osg::equivalent(v0*v1, 1.0) )
+                ind.push_back(i+1);
+        }
+
+        for(std::vector<unsigned>::reverse_iterator r = ind.rbegin(); r != ind.rend(); ++r)
+        {
+            erase( begin() + (*r) );
+        }
+    }
+}
+
 Geometry::Orientation 
 Geometry::getOrientation() const
 {
@@ -782,6 +809,14 @@ Polygon::removeDuplicates()
         (*i)->removeDuplicates();
 }
 
+void
+Polygon::removeColinearPoints()
+{
+    Ring::removeColinearPoints();
+    for( RingCollection::const_iterator i = _holes.begin(); i != _holes.end(); ++i )
+        (*i)->removeColinearPoints();
+}
+
 //----------------------------------------------------------------------------
 
 MultiGeometry::MultiGeometry( const MultiGeometry& rhs ) :
@@ -880,6 +915,15 @@ MultiGeometry::rewind( Orientation orientation )
     for( GeometryCollection::const_iterator i = _parts.begin(); i != _parts.end(); ++i )
     {
         i->get()->rewind( orientation );
+    }
+}
+
+void
+MultiGeometry::removeColinearPoints()
+{
+    for( GeometryCollection::const_iterator i = _parts.begin(); i != _parts.end(); ++i )
+    {
+        i->get()->removeColinearPoints();
     }
 }
 

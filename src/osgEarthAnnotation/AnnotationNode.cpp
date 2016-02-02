@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2015 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -20,6 +23,7 @@
 #include <osgEarthAnnotation/AnnotationNode>
 #include <osgEarthAnnotation/AnnotationSettings>
 #include <osgEarthAnnotation/AnnotationUtils>
+#include <osgEarthSymbology/ModelSymbol>
 
 #include <osgEarth/DepthOffset>
 #include <osgEarth/MapNode>
@@ -366,34 +370,54 @@ AnnotationNode::supportsAutoClamping( const Style& style ) const
 {
     return
         !style.has<ExtrusionSymbol>()  &&
-        !style.has<InstanceSymbol>()   &&
+        !style.has<ModelSymbol>()   &&
         !style.has<MarkerSymbol>()     &&  // backwards-compability
         style.has<AltitudeSymbol>()    &&
         (style.get<AltitudeSymbol>()->clamping() == AltitudeSymbol::CLAMP_TO_TERRAIN ||
-         style.get<AltitudeSymbol>()->clamping() == AltitudeSymbol::CLAMP_RELATIVE_TO_TERRAIN);
+         style.get<AltitudeSymbol>()->clamping() == AltitudeSymbol::CLAMP_RELATIVE_TO_TERRAIN) &&
+        style.get<AltitudeSymbol>()->technique() != AltitudeSymbol::TECHNIQUE_GPU;
 }
 
 void
 AnnotationNode::configureForAltitudeMode( const AltitudeMode& mode )
 {
-    setCPUAutoClamping(
-        mode == ALTMODE_RELATIVE ||
-        (_altitude.valid() && _altitude->clamping() == AltitudeSymbol::CLAMP_TO_TERRAIN) );
+    bool cpuClamp = false;
+
+    if ( _altitude.valid() )
+    {
+        bool clamp =
+            _altitude->clamping() == _altitude->CLAMP_TO_TERRAIN ||
+            _altitude->clamping() == _altitude->CLAMP_RELATIVE_TO_TERRAIN;
+
+        bool gpuClamp =
+            clamp && _altitude->technique() == _altitude->TECHNIQUE_GPU;
+
+        cpuClamp = 
+            (mode == ALTMODE_RELATIVE || clamp) &&
+            !gpuClamp;
+
+        if ( clamp && mode == ALTMODE_ABSOLUTE )
+        {
+            // note: altitude mode conflicts with style.
+        }
+    }
+
+    setCPUAutoClamping( cpuClamp );
 }
 
 void
 AnnotationNode::applyStyle( const Style& style)
 {
     if ( supportsAutoClamping(style) )
-    {
+    {     
         _altitude = style.get<AltitudeSymbol>();
         setCPUAutoClamping( true );
     }
-    applyGeneralSymbology(style);
+    applyRenderSymbology(style);
 }
 
 void
-AnnotationNode::applyGeneralSymbology(const Style& style)
+AnnotationNode::applyRenderSymbology(const Style& style)
 {
     const RenderSymbol* render = style.get<RenderSymbol>();
     if ( render )
@@ -446,6 +470,13 @@ AnnotationNode::applyGeneralSymbology(const Style& style)
         if ( render->minAlpha().isSet() )
         {
             DiscardAlphaFragments().install( getOrCreateStateSet(), render->minAlpha().value() );
+        }
+        
+
+        if ( render->transparent() == true )
+        {
+            osg::StateSet* ss = getOrCreateStateSet();
+            ss->setRenderingHint( ss->TRANSPARENT_BIN );
         }
     }
 }

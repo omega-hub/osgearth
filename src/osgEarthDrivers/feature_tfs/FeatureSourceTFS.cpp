@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -239,11 +239,11 @@ public:
             unsigned int tileY = key.getTileY();
             unsigned int level = key.getLevelOfDetail();
             
-#if 0
+            // TFS follows the same protocol as TMS, with the origin in the lower left of the profile.
+            // osgEarth TileKeys are upper left origin, so we need to invert the tilekey to request the correct key.
             unsigned int numRows, numCols;
             key.getProfile()->getNumTiles(key.getLevelOfDetail(), numCols, numRows);
             tileY  = numRows - tileY - 1;
-#endif
             
             std::stringstream buf;
             std::string path = osgDB::getFilePath(_options.url()->full());

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -132,8 +132,8 @@ AtlasBuilder::build(const ResourceLibrary* inputLib,
     {
         SkinResource* skin = i->get();
 
-        // skip tiled skins for now.
-        if ( skin->isTiled() == true )
+        // skip skins that say "no atlas please"
+        if ( skin->atlasHint() == false )
         {
             continue;
         }

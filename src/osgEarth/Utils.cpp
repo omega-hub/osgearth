@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -56,11 +56,16 @@ _screenSpaceRotationRadians( 0.0 )
 void
 PixelAutoTransform::accept( osg::NodeVisitor& nv )
 {
+    // optimization - don't bother with mathing if the node is hidden.
+    // (this occurs in Node::accept, which we override here)
+    if ( !nv.validNodeMask(*this) )
+        return;
+
     if ( nv.getVisitorType() == osg::NodeVisitor::CULL_VISITOR )
     {
         // re-activate culling now that the first cull traversal has taken place.
         this->setCullingActive( true );
-        osgUtil::CullVisitor* cv = Culling::asCullVisitor(nv);
+        osgUtil::CullVisitor* cv = dynamic_cast<osgUtil::CullVisitor*>(&nv);
         if ( cv )
         {
             osg::Viewport::value_type width  = _previousWidth;
@@ -613,4 +618,37 @@ AllocateAndMergeBufferObjectsVisitor::apply(osg::Geode& geode)
         }
     }
     traverse(geode);
+}
+
+
+//------------------------------------------------------------------------
+
+namespace
+{
+    unsigned getTotalNumRenderLeavesInStateGraph(const osgUtil::StateGraph* sg)
+    {
+        unsigned count = sg->_leaves.size();
+        for(osgUtil::StateGraph::ChildList::const_iterator i = sg->_children.begin(); i != sg->_children.end(); ++i)
+            count += getTotalNumRenderLeavesInStateGraph( i->second.get() );
+        return count;
+    }
+}
+
+unsigned
+RenderBinUtils::getTotalNumRenderLeaves(osgUtil::RenderBin* bin)
+{
+    if ( !bin ) return 0u;
+    unsigned count = bin->getRenderLeafList().size();
+
+    for(osgUtil::RenderBin::StateGraphList::const_iterator i = bin->getStateGraphList().begin(); i != bin->getStateGraphList().end(); ++i)
+    {
+        count += getTotalNumRenderLeavesInStateGraph( *i );
+    }
+
+    for(osgUtil::RenderBin::RenderBinList::const_iterator i = bin->getRenderBinList().begin(); i != bin->getRenderBinList().end(); ++i)
+    {
+        count += getTotalNumRenderLeaves( i->second.get() );
+    }
+
+    return count;
 }

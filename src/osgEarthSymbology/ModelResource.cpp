@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -22,6 +22,7 @@
 #include <osgEarth/Registry>
 #include <osgEarth/Capabilities>
 #include <osgUtil/Optimizer>
+#include <osg/ComputeBoundsVisitor>
 
 #define LC "[ModelResource] "
 
@@ -51,13 +52,36 @@ ModelResource::getConfig() const
     return conf;
 }
 
+const osg::BoundingBox&
+ModelResource::getBoundingBox(const osgDB::Options* dbo)
+{
+    if ( !_bbox.valid() )
+    {
+        Threading::ScopedMutexLock lock(_mutex);
+        if ( !_bbox.valid() )
+        {
+            osg::ref_ptr<osg::Node> node = createNodeFromURI( uri().get(), dbo );
+            if ( node.valid() )
+            {
+                osg::ComputeBoundsVisitor cbv;
+                node->accept(cbv);
+                _bbox = cbv.getBoundingBox();
+            }
+        }
+    }
+    return _bbox;
+}
+
 osg::Node*
 ModelResource::createNodeFromURI( const URI& uri, const osgDB::Options* dbOptions ) const
 {
-    osg::ref_ptr< osgDB::Options > options = dbOptions ? new osgDB::Options( *dbOptions ) : 0;
+    osg::ref_ptr< osgDB::Options > options = dbOptions ? new osgDB::Options( *dbOptions ) : 0L;
 
     // Explicitly cache images so that models that share images will only load one copy.
-    options->setObjectCacheHint( osgDB::Options::CACHE_IMAGES );
+    if ( options.valid() )
+    {
+        options->setObjectCacheHint( osgDB::Options::CACHE_IMAGES );
+    }
     osg::Node* node = 0L;
 
     ReadResult r = uri.readNode( options.get() );

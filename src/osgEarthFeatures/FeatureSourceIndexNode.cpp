@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -291,4 +291,15 @@ FeatureSourceIndex::getFeature(ObjectID oid) const
         }
     }
     return feature;
+}
+
+ObjectID
+FeatureSourceIndex::getObjectID(FeatureID fid) const
+{
+    Threading::ScopedMutexLock lock(_mutex);
+    FIDMap::const_iterator i = _fids.find(fid);
+    if ( i != _fids.end() )
+        return i->second->_oid;
+    else
+        return OSGEARTH_OBJECTID_EMPTY;
 }

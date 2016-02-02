@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2015 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -41,6 +44,8 @@ int usage(char** argv)
         << "\n    --profile [profile def]             : set an output profile (optional; default = same as input)"
         << "\n    --min-level [int]                   : minimum level of detail"
         << "\n    --max-level [int]                   : maximum level of detail"
+        << "\n    --osg-options [OSG options string]  : options to pass to OSG readers/writers"
+        << "\n    --extents [minLat] [minLong] [maxLat] [maxLong] : Lat/Long extends to copy"
         << std::endl;
         
     return 0;
@@ -204,6 +209,10 @@ struct ProgressReporter : public osgEarth::ProgressCallback
  *
  *      --extents [minLat] [minLong] [maxLat] [maxLong] : Lat/Long extends to copy (*)
  *
+ * OSG arguments:
+ *
+ *      -O <string>           : OSG Options string (plugin options)
+ *
  * Of course, the output driver must support writing (by implementing
  * the ReadWriteTileSource interface).
  */
@@ -223,6 +232,15 @@ main(int argc, char** argv)
     while( args.read("--in", key, value) )
         inConf.set(key, value);
 
+    osg::ref_ptr<osgDB::Options> dbo = new osgDB::Options();
+    
+    // plugin options, if the user passed them in:
+    std::string str;
+    while(args.read("--osg-options", str) || args.read("-O", str))
+    {
+        dbo->setOptionString( str );
+    }
+
     TileSourceOptions inOptions(inConf);
     osg::ref_ptr<TileSource> input = TileSourceFactory::create(inOptions);
     if ( !input.valid() )
@@ -231,7 +249,7 @@ main(int argc, char** argv)
         return -1;
     }
 
-    TileSource::Status inputStatus = input->open();
+    TileSource::Status inputStatus = input->open( input->MODE_READ, dbo.get() );
     if ( inputStatus.isError() )
     {
         OE_WARN << LC << "Error initializing input" << std::endl;
@@ -279,7 +297,10 @@ main(int argc, char** argv)
         return -1;
     }
 
-    TileSource::Status outputStatus = output->open(TileSource::MODE_WRITE | TileSource::MODE_CREATE);
+    TileSource::Status outputStatus = output->open(
+        TileSource::MODE_WRITE | TileSource::MODE_CREATE,
+        dbo.get() );
+
     if ( outputStatus.isError() )
     {
         OE_WARN << LC << "Error initializing output" << std::endl;

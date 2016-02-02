@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -147,9 +147,19 @@ public:
                              NumericExpression& priorityExpr )
     {
         osg::Vec3d center = feature->getGeometry()->getBounds().center();
-        GeoPoint point(feature->getSRS(), center.x(), center.y());
 
-        //LabelNode* node = new LabelNode(0L, point, style);
+        AltitudeMode mode = ALTMODE_ABSOLUTE;        
+
+        const AltitudeSymbol* alt = style.getSymbol<AltitudeSymbol>();
+        if (alt &&
+           (alt->clamping() == AltitudeSymbol::CLAMP_TO_TERRAIN || alt->clamping() == AltitudeSymbol::CLAMP_RELATIVE_TO_TERRAIN) &&
+           alt->technique() == AltitudeSymbol::TECHNIQUE_SCENE)
+        {
+            mode = ALTMODE_RELATIVE;
+        }                              
+
+        GeoPoint point(feature->getSRS(), center.x(), center.y(), center.z(), mode);        
+
         PlaceNode* node = new PlaceNode(0L, point, style, context.getDBOptions());
 
         if ( !priorityExpr.empty() )

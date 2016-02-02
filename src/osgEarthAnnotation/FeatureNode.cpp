@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2015 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -48,13 +51,15 @@ using namespace osgEarth::Symbology;
 FeatureNode::FeatureNode(MapNode* mapNode,
                          Feature* feature,
                          const Style& style,
-                         const GeometryCompilerOptions& options ) :
+                         const GeometryCompilerOptions& options,
+                         StyleSheet* styleSheet) :
 AnnotationNode( mapNode ),
 _style        ( style ),
 _options      ( options ),
 _needsRebuild (true),
 _clusterCulling(true),
-_clusterCullingCallback(0)
+_clusterCullingCallback(0),
+_styleSheet( styleSheet )
 {
     if (_style.empty() && feature->style().isSet())
     {
@@ -68,13 +73,15 @@ _clusterCullingCallback(0)
 FeatureNode::FeatureNode(MapNode* mapNode, 
                          FeatureList& features,
                          const Style& style,
-                         const GeometryCompilerOptions& options):
+                         const GeometryCompilerOptions& options,
+                         StyleSheet* styleSheet):
 AnnotationNode( mapNode ),
 _style        ( style ),
 _options      ( options ),
 _needsRebuild (true),
 _clusterCulling(true),
-_clusterCullingCallback(0)
+_clusterCullingCallback(0),
+_styleSheet( styleSheet )
 {
     _features.insert( _features.end(), features.begin(), features.end() );
     build();
@@ -130,10 +137,6 @@ FeatureNode::build()
         options.ignoreAltitudeSymbol() = true;
     }
 
-  
-
-    
-
     osg::Node* node = _compiled.get();
     if (_needsRebuild || !_compiled.valid() )
     {
@@ -160,7 +163,7 @@ FeatureNode::build()
 
         // prep the compiler:
         GeometryCompiler compiler( options );
-        Session* session = new Session( getMapNode()->getMap() );
+        Session* session = new Session( getMapNode()->getMap(), _styleSheet.get() );
 
         FilterContext context( session, new FeatureProfile( _extent ), _extent );
 
@@ -197,7 +200,7 @@ FeatureNode::build()
         // Draped (projected) geometry
         if ( ap.draping )
         {
-            DrapeableNode* d = new DrapeableNode( getMapNode() );
+            DrapeableNode* d = new DrapeableNode(); // getMapNode() );
             d->addChild( _attachPoint );
             this->addChild( d );
         }
@@ -236,7 +239,7 @@ FeatureNode::build()
                 clampMesh( getMapNode()->getTerrain()->getGraph() );
             } 
 
-            applyGeneralSymbology( style );
+            applyRenderSymbology( style );
         }
     }
 
@@ -279,6 +282,16 @@ FeatureNode::setStyle(const Style& style)
     }
     _style = style;
     build();
+}
+
+StyleSheet* FeatureNode::getStyleSheet() const
+{
+    return _styleSheet;
+}
+
+void FeatureNode::setStyleSheet(StyleSheet* styleSheet)
+{
+    _styleSheet = styleSheet;
 }
 
 Feature* FeatureNode::getFeature()

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -25,6 +25,7 @@
 #include <osgEarth/Registry>
 #include <osgEarth/ThreadingUtils>
 #include <osgEarth/MemCache>
+#include <osgEarth/MapFrame>
 #include <osgDB/FileUtils>
 #include <osgDB/FileNameUtils>
 #include <osgDB/ReadFile>
@@ -150,7 +151,8 @@ _noDataValue          ( (float)SHRT_MIN ),
 _minValidValue        ( -32000.0f ),
 _maxValidValue        (  32000.0f ),
 _L2CacheSize          ( 16 ),
-_bilinearReprojection ( true )
+_bilinearReprojection ( true ),
+_coverage             ( false )
 { 
     fromConfig( _conf );
 }
@@ -163,13 +165,13 @@ TileSourceOptions::getConfig() const
     conf.updateIfSet( "tile_size", _tileSize );
     conf.updateIfSet( "nodata_value", _noDataValue );
     conf.updateIfSet( "min_valid_value", _minValidValue );
-    conf.updateIfSet( "nodata_min", _minValidValue ); // backcompat
     conf.updateIfSet( "max_valid_value", _maxValidValue );
-    conf.updateIfSet( "nodata_max", _maxValidValue ); // backcompat
     conf.updateIfSet( "blacklist_filename", _blacklistFilename);
     conf.updateIfSet( "l2_cache_size", _L2CacheSize );
     conf.updateIfSet( "bilinear_reprojection", _bilinearReprojection );
     conf.updateIfSet( "max_data_level", _maxDataLevel );
+    conf.updateIfSet( "coverage", _coverage );
+    conf.updateIfSet( "osg_option_string", _osgOptionString );
     conf.updateObjIfSet( "profile", _profileOptions );
     return conf;
 }
@@ -188,12 +190,16 @@ TileSourceOptions::fromConfig( const Config& conf )
 {
     conf.getIfSet( "tile_size", _tileSize );
     conf.getIfSet( "nodata_value", _noDataValue );
-    conf.getIfSet( "nodata_min", _minValidValue );
-    conf.getIfSet( "nodata_max", _maxValidValue );
+    conf.getIfSet( "min_valid_value", _minValidValue );
+    conf.getIfSet( "nodata_min", _minValidValue ); // backcompat
+    conf.getIfSet( "max_valid_value", _maxValidValue );
+    conf.getIfSet( "nodata_max", _maxValidValue ); // backcompat
     conf.getIfSet( "blacklist_filename", _blacklistFilename);
     conf.getIfSet( "l2_cache_size", _L2CacheSize );
     conf.getIfSet( "bilinear_reprojection", _bilinearReprojection );
     conf.getIfSet( "max_data_level", _maxDataLevel );
+    conf.getIfSet( "coverage", _coverage );
+    conf.getIfSet( "osg_option_string", _osgOptionString );
     conf.getObjIfSet( "profile", _profileOptions );
 }
 
@@ -217,7 +223,6 @@ _mode   ( 0 )
 {
     this->setThreadSafeRefUnref( true );
 
-
     // Initialize the l2 cache size to the options.
     int l2CacheSize = *options.L2CacheSize();
 
@@ -226,6 +231,13 @@ _mode   ( 0 )
     if ( l2env )
     {
         l2CacheSize = as<int>( std::string(l2env), 0 );
+    }
+
+    // Env cache-only mode also disables the L2 cache.
+    char const* noCacheEnv = ::getenv( "OSGEARTH_MEMORY_PROFILE" );
+    if ( noCacheEnv )
+    {
+        l2CacheSize = 0;
     }
 
     // Initialize the l2 cache if it's size is > 0
@@ -328,8 +340,7 @@ const GeoExtent& TileSource::getDataExtentsUnion() const
 {
     if (_dataExtentsUnion.isInvalid() && _dataExtents.size() > 0)
     {
-        static Threading::Mutex s_mutex;
-        Threading::ScopedMutexLock lock(s_mutex);
+        Threading::ScopedMutexLock lock(_mutex);
         {
             if (_dataExtentsUnion.isInvalid() && _dataExtents.size() > 0) // double-check
             {
@@ -547,6 +558,9 @@ TileSource::hasData(const osgEarth::TileKey& key) const
 {
     //sematics: "might have data"
 
+    if ( !key.valid() )
+        return false;
+
     // If no data extents are provided, and there's no data level override,
     // return true because there might be data but there's no way to tell.
     if (_dataExtents.size() == 0 && !_options.maxDataLevel().isSet())
@@ -595,6 +609,10 @@ bool
 TileSource::getBestAvailableTileKey(const osgEarth::TileKey& key,
                                     osgEarth::TileKey&       output) const
 {
+    // trivial reject
+    if ( !key.valid() )
+        return false;
+
     // trivial accept: no data extents = not enough info.
     if (_dataExtents.size() == 0)
     {
@@ -666,6 +684,9 @@ bool
 TileSource::hasDataForFallback(const osgEarth::TileKey& key) const
 {
     //sematics: might have data.
+
+    if ( !key.valid() )
+        return false;
 
     //If no data extents are provided, just return true
     if (_dataExtents.size() == 0) 

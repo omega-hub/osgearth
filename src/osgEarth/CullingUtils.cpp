@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -483,6 +483,57 @@ ClusterCullingFactory::create(const osg::Vec3& controlPoint,
     SuperClusterCullingCallback* ccc = new SuperClusterCullingCallback();
     ccc->set(controlPoint, normal, deviation, radius);
     return ccc;
+}
+
+osg::NodeCallback*
+ClusterCullingFactory::create(const GeoExtent& extent)
+{
+    GeoPoint centerPoint;
+    extent.getCentroid( centerPoint );
+
+    // select the farthest corner:
+    GeoPoint edgePoint;
+    if ( centerPoint.y() >= 0.0 )
+        edgePoint = GeoPoint(extent.getSRS(), extent.xMin(), extent.yMin(), 0.0, ALTMODE_ABSOLUTE);
+    else
+        edgePoint = GeoPoint(extent.getSRS(), extent.xMin(), extent.yMax(), 0.0, ALTMODE_ABSOLUTE);
+
+    // convert both to ECEF and make unit vectors:
+    osg::Vec3d center, centerNormal, edge, edgeNormal;
+
+    centerPoint.toWorld( center );
+    edgePoint.toWorld( edge );
+
+    edgeNormal = edge;
+    edgeNormal.normalize();
+
+    centerNormal = center;
+    centerNormal.normalize();
+
+    // determine the height above the center point necessary to see the edge point:
+    double dp = centerNormal * edgeNormal;
+    double centerLen = center.length();
+    double height = (edge.length() / dp) - centerLen;
+
+    // set the control point at that height:
+    osg::Vec3d controlPoint = center + centerNormal*height;
+
+    // cluster culling only occurs beyond the maximum radius:
+    double maxRadius = (controlPoint-edge).length();
+
+    // determine the maximum visibility angle (i.e. minimum dot product
+    // of the center up vector and the vector from the control point to 
+    // the edge point)
+    osg::Vec3d cpToEdge = edge - controlPoint;
+    cpToEdge.normalize();                
+    double minDeviation = centerNormal * cpToEdge;
+    
+    // create and return the callback.
+    return create(
+        controlPoint,
+        centerNormal,
+        minDeviation,
+        maxRadius);
 }
 
 //------------------------------------------------------------------------
@@ -1007,10 +1058,11 @@ LODScaleGroup::traverse(osg::NodeVisitor& nv)
 ClipToGeocentricHorizon::ClipToGeocentricHorizon(const osgEarth::SpatialReference* srs,
                                                  osg::ClipPlane*                   clipPlane)
 {
-    _radii.set(
-        srs->getEllipsoid()->getRadiusEquator(),
-        srs->getEllipsoid()->getRadiusEquator(),
-        srs->getEllipsoid()->getRadiusPolar() );
+    if ( srs )
+    {
+        _horizon = new Horizon();
+        _horizon->setEllipsoid( *srs->getEllipsoid() );
+    }
 
     _clipPlane = clipPlane;
 }
@@ -1021,26 +1073,79 @@ ClipToGeocentricHorizon::operator()(osg::Node* node, osg::NodeVisitor* nv)
     osg::ref_ptr<osg::ClipPlane> clipPlane;
     if ( _clipPlane.lock(clipPlane) )
     {
-        osg::Vec3d eye = nv->getEyePoint();
+        osg::ref_ptr<Horizon> horizon = Horizon::get(*nv);
+        if ( !horizon.valid() ) 
+        {
+            horizon = new Horizon(*_horizon.get());
+            horizon->setEye( nv->getViewPoint() );
+        }
 
-        // viewer in ellipsoidal unit space:
-        osg::Vec3d unitEye( eye.x()/_radii.x(), eye.y()/_radii.y(), eye.z()/_radii.z());
+        osg::Plane horizonPlane;
+        horizon->getPlane( horizonPlane );
 
-        // calculate scaled distance from center to viewer:
-        double unitEyeLen = unitEye.length();
-
-        // calculate scaled distance from center to horizon plane:
-        double unitHorizonPlaneLen = 1.0/unitEyeLen;
-
-        // convert back to real space:
-        double eyeLen = eye.length();
-        double horizonPlaneLen = eyeLen * unitHorizonPlaneLen/unitEyeLen;
-
-        // normalize the eye vector:
-        eye /= eyeLen;
-
-        // compute a new clip plane:
-        clipPlane->setClipPlane(osg::Plane(eye, eye*horizonPlaneLen));
+        _clipPlane->setClipPlane( horizonPlane );
     }
     traverse(node, nv);
+}
+
+//......................................................................
+
+namespace
+{
+    Config dumpStateGraph(osgUtil::StateGraph* sg)
+    {
+        Config conf("StateGraph");
+
+        Config leaves("Leaves");
+        for(osgUtil::StateGraph::LeafList::const_iterator i = sg->_leaves.begin(); i != sg->_leaves.end(); ++i)
+        {
+            Config leaf("Leaf");
+            leaf.add("Name", i->get()->getDrawable()->getName());
+            leaf.add("Depth", i->get()->_depth);
+            leaves.add( leaf );
+        }
+        if ( !leaves.empty() )
+            conf.add(leaves);
+
+        Config kids("Children");
+        for(osgUtil::StateGraph::ChildList::const_iterator i = sg->_children.begin(); i != sg->_children.end(); ++i)
+        {
+            kids.add( dumpStateGraph(i->second.get()) );
+        }
+        if ( !kids.children().empty() )
+            conf.add(kids);
+
+        return conf;
+    }
+}
+
+Config
+CullDebugger::dumpRenderBin(osgUtil::RenderBin* bin) const
+{
+    Config conf("RenderBin");
+    if ( !bin->getName().empty() )
+        conf.set("Name", bin->getName());
+    conf.set("BinNum", bin->getBinNum());
+    
+    Config sg("StateGraphList");
+    sg.add("NumChildren", bin->getStateGraphList().size());
+
+    for(osgUtil::RenderBin::StateGraphList::const_iterator i = bin->getStateGraphList().begin(); i != bin->getStateGraphList().end(); ++i)
+    {
+        sg.add( dumpStateGraph(*i) );
+    }
+
+    if ( !sg.children().empty() )
+        conf.add(sg);
+
+    Config rb("_children");
+    for(osgUtil::RenderBin::RenderBinList::const_iterator i = bin->getRenderBinList().begin(); i != bin->getRenderBinList().end(); ++i)
+    {
+        osgUtil::RenderBin* childBin = i->second.get();
+        rb.add( dumpRenderBin(childBin) );
+    }
+    if ( !rb.children().empty() )
+        conf.add(rb);
+
+    return conf;
 }

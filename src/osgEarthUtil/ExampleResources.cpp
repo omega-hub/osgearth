@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2015 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -37,6 +40,7 @@
 #include <osgEarthAnnotation/AnnotationData>
 #include <osgEarthAnnotation/AnnotationRegistry>
 #include <osgEarth/Decluttering>
+#include <osgEarth/TerrainEngineNode>
 
 #include <osgEarth/XmlUtils>
 #include <osgEarth/StringUtils>
@@ -107,6 +111,36 @@ namespace
         }
 
         osg::observer_ptr<osg::Node> _node;
+    };
+
+    /**
+     * Toggles the main control canvas on and off.
+     */
+    struct ToggleCanvasEventHandler : public osgGA::GUIEventHandler
+    {
+        ToggleCanvasEventHandler(osg::Node* canvas):
+            _canvas(canvas)
+        {
+        }
+
+        bool handle( const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter& aa )
+        {
+            if (ea.getEventType() == osgGA::GUIEventAdapter::KEYDOWN)
+            {
+                if (ea.getKey() == 'y')
+                {
+                    osg::ref_ptr< osg::Node > safeNode = _canvas.get();
+                    if (safeNode.valid())
+                    {
+                        safeNode->setNodeMask( safeNode->getNodeMask() ? 0 : ~0 );
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        osg::observer_ptr<osg::Node> _canvas;
     };
 
     // sets a user-specified uniform.
@@ -364,22 +398,26 @@ MapNodeHelper::load(osg::ArgumentParser& args,
     std::string outEarth;
     args.read( "--out-earth", outEarth );
 
+    osg::ref_ptr<osgDB::Options> options = new osgDB::Options();
+    
+#if 1
+    Config c;
+    c.add("elevation_smoothing", false);
+    TerrainOptions to(c);
+
+    MapNodeOptions defMNO;
+    defMNO.setTerrainOptions( to );
+
+    options->setPluginStringData("osgEarth.defaultOptions", defMNO.getConfig().toJSON());
+#endif
+
     // read in the Earth file:
-    osg::Node* node = 0L;
-    for( int i=0; i<args.argc(); ++i )
-    {
-        if ( osgDB::getLowerCaseFileExtension(args[i]) == "earth" )
-        {
-            node = osgDB::readNodeFile( args[i] );
-            args.remove(i);
-            break;
-        }
-    }
+    osg::Node* node = osgDB::readNodeFiles(args);
 
     osg::ref_ptr<MapNode> mapNode;
     if ( !node )
     {
-        if ( !args.find("--images") )
+        if ( args.find("--images") < 0 )
         {
             OE_WARN << LC << "No earth file." << std::endl;
             return 0L;
@@ -412,7 +450,7 @@ MapNodeHelper::load(osg::ArgumentParser& args,
     // a root node to hold everything:
     osg::Group* root = new osg::Group();
     
-    root->addChild( mapNode.get() );
+    root->addChild( node );
 
     // parses common cmdline arguments.
     if ( view )
@@ -527,6 +565,11 @@ MapNodeHelper::parse(MapNode*             mapNode,
     }
     canvas->addControl( mainContainer );
 
+    // Add an event handler to toggle the canvas with a key press;
+    view->addEventHandler(new ToggleCanvasEventHandler(canvas) );
+
+
+
 
     // look for external data in the map node:
     const Config& externals = mapNode->externalConfig();
@@ -600,17 +643,22 @@ MapNodeHelper::parse(MapNode*             mapNode,
     // Shadowing.
     if ( useShadows )
     {
-        ShadowCaster* caster = new ShadowCaster();
-        caster->setLight( view->getLight() );
-        caster->getShadowCastingGroup()->addChild( mapNode->getModelLayerGroup() );
-        if ( mapNode->getNumParents() > 0 )
+        int unit;
+        if ( mapNode->getTerrainEngine()->getResources()->reserveTextureImageUnit(unit, "ShadowCaster") )
         {
-            insertGroup(caster, mapNode->getParent(0));
-        }
-        else
-        {
-            caster->addChild(mapNode);
-            root = caster;
+            ShadowCaster* caster = new ShadowCaster();
+            caster->setTextureImageUnit( unit );
+            caster->setLight( view->getLight() );
+            caster->getShadowCastingGroup()->addChild( mapNode ); //->getModelLayerGroup() );
+            if ( mapNode->getNumParents() > 0 )
+            {
+                insertGroup(caster, mapNode->getParent(0));
+            }
+            else
+            {
+                caster->addChild(mapNode);
+                root = caster;
+            }
         }
     }
 
@@ -688,11 +736,6 @@ MapNodeHelper::parse(MapNode*             mapNode,
     if ( useOrtho )
     {
         view->getCamera()->setProjectionMatrixAsOrtho(-1, 1, -1, 1, 0, 1);
-        //EarthManipulator* manip = dynamic_cast<EarthManipulator*>(view->getCameraManipulator());
-        //if ( manip )
-        //{
-        //    manip->getSettings()->setCameraProjection( EarthManipulator::PROJ_ORTHOGRAPHIC );
-        //}
     }
 
     // activity monitor (debugging)
@@ -847,15 +890,15 @@ MapNodeHelper::usage() const
 {
     return Stringify()
         << "  --sky                         : add a sky model\n"
-        << "  --ocean                       : add an ocean model\n"
         << "  --kml <file.kml>              : load a KML or KMZ file\n"
+        << "  --kmlui                       : display a UI for toggling nodes loaded with --kml\n"
         << "  --coords                      : display map coords under mouse\n"
         << "  --dms                         : dispay deg/min/sec coords under mouse\n"
         << "  --dd                          : display decimal degrees coords under mouse\n"
         << "  --mgrs                        : show MGRS coords under mouse\n"
         << "  --ortho                       : use an orthographic camera\n"
         << "  --logdepth                    : activates the logarithmic depth buffer\n"
-        << "  --autoclip                    : installs an auto-clip plane callback\n"
+        << "  --logdepth2                   : activates logarithmic depth buffer with per-fragment interpolation\n"
         << "  --images [path]               : finds and loads image layers from folder [path]\n"
         << "  --image-extensions [ext,...]  : with --images, extensions to use\n"
         << "  --out-earth [file]            : write the loaded map to an earth file\n"

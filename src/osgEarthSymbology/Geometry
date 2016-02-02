@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -120,13 +120,13 @@ namespace osgEarth { namespace Symbology
          * Creates a new Vec3Array (single-precision), copies the part into it, and
          * returns the new object. 
          */
-        osg::Vec3Array* toVec3Array() const;
+        osg::Vec3Array* createVec3Array() const;
 
         /**
          * Creates a new Vec3dArray (double-precision), copies the part into it, and
          * returns the new object.
          */
-        osg::Vec3dArray* toVec3dArray() const;
+        osg::Vec3dArray* createVec3dArray() const;
 
         /**
          * Gets the bounds of this geometry
@@ -197,6 +197,12 @@ namespace osgEarth { namespace Symbology
          * Removes consecutive duplicates in the geometry to prepare for tesselation.
          */
         virtual void removeDuplicates();
+
+        /**
+         * Removes any colinear points, i.e. points that can be safely removed without
+         * affecting the shape/area of the geometry.
+         */
+        virtual void removeColinearPoints();
 
         /**
          * Get the winding orientation of the geometry (if you consider the last point
@@ -336,6 +342,8 @@ namespace osgEarth { namespace Symbology
 
         virtual void removeDuplicates();
 
+        virtual void removeColinearPoints();
+
     public:
         RingCollection& getHoles() { return _holes; }
         const RingCollection& getHoles() const { return _holes; }
@@ -373,6 +381,7 @@ namespace osgEarth { namespace Symbology
         virtual bool isValid() const;
         virtual Bounds getBounds() const;
         virtual void rewind( Orientation ori );
+        virtual void removeColinearPoints();
 
     public:
         GeometryCollection& getComponents() { return _parts; }

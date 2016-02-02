@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -25,9 +25,16 @@ using namespace osgEarth;
 ProgressCallback::ProgressCallback() :
 osg::Referenced( true ),
 _canceled      ( false ),
+_failed        ( false ),
 _needsRetry    ( false )
 {
     //NOP
+}
+
+void ProgressCallback::reportError(const std::string& msg)
+{
+    _message = msg;
+    _failed = true;
 }
 
 bool ProgressCallback::reportProgress(double             current,
@@ -44,6 +51,13 @@ ConsoleProgressCallback::ConsoleProgressCallback() :
 ProgressCallback()
 {
     //NOP
+}
+
+void
+ConsoleProgressCallback::reportError(const std::string& msg)
+{
+    ProgressCallback::reportError(msg);
+    OE_NOTICE << "Error: " << msg << std::endl;
 }
 
 bool

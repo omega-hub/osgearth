@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2015 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -51,6 +54,12 @@ namespace osgEarth
         // Name of the uniform used to apply an altitude offset to clamped geometry
         static const char* AltitudeOffsetUniformName;
 
+        // GLSL attribute binding location for clamping vertex heights
+        static const int HeightsAttrLocation;
+
+        // Name of the clamping heights array attribute
+        static const char* HeightsAttrName;
+
         // When setting clamping vertex attributes, use these constants in
         // the alpha channel to indicate whether the vertex is to be clamped
         // to the reference vertex in the attribute data, or to the ground.
@@ -69,6 +78,10 @@ namespace osgEarth
         static void applyDefaultClampingAttrs(
             osg::Geometry* geom,
             float          verticalOffset =0.0f);
+
+        static void setHeights(
+            osg::Geometry*   geom,
+            osg::FloatArray* heights );
     };
 }
 

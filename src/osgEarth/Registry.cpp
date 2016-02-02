@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -97,7 +97,7 @@ _cacheDriver        ( "filesystem" )
 
     // activate KMZ support
     osgDB::Registry::instance()->addArchiveExtension  ( "kmz" );
-    osgDB::Registry::instance()->addFileExtensionAlias( "kmz", "kml" );
+    //osgDB::Registry::instance()->addFileExtensionAlias( "kmz", "kml" );
 
     osgDB::Registry::instance()->addMimeTypeExtensionMapping( "application/vnd.google-earth.kml+xml", "kml" );
     osgDB::Registry::instance()->addMimeTypeExtensionMapping( "application/vnd.google-earth.kmz",     "kmz" );
@@ -160,7 +160,7 @@ _cacheDriver        ( "filesystem" )
             options.setDriver( getDefaultCacheDriverName() );
 
             osg::ref_ptr<Cache> cache = CacheFactory::create(options);
-            if ( cache->isOK() )
+            if ( cache.valid() && cache->isOK() )
             {
                 setCache( cache.get() );
             }
@@ -579,6 +579,7 @@ Registry::startActivity(const std::string& activity,
                         const std::string& value)
 {
     Threading::ScopedMutexLock lock(_activityMutex);
+    _activities.erase(Activity(activity,std::string()));
     _activities.insert(Activity(activity,value));
 }
 
@@ -634,6 +635,20 @@ Registry::getMimeTypeForExtension(const std::string& ext)
         }
     }
     return std::string();
+}
+
+void
+Registry::setTextureImageUnitOffLimits(int unit)
+{
+    Threading::ScopedWriteLock exclusive(_regMutex);
+    _offLimitsTextureImageUnits.insert(unit);
+}
+
+const std::set<int>
+Registry::getOffLimitsTextureImageUnits() const
+{
+    Threading::ScopedReadLock exclusive(_regMutex);
+    return _offLimitsTextureImageUnits;
 }
 
 

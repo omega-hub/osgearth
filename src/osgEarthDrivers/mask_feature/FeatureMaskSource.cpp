@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -102,7 +102,7 @@ public:
                             cx = xform.push(featureList, cx);
                         }
 
-                        return f->getGeometry()->toVec3dArray();
+                        return f->getGeometry()->createVec3dArray();
                     }
                 }
             }

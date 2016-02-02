@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -232,19 +232,23 @@ ConvertToDrawInstanced::apply(osg::LOD& lod)
 }
 
 
-void
+bool
 DrawInstanced::install(osg::StateSet* stateset)
 {
     if ( !stateset )
-        return;
-
+        return false;
+    
+    if ( !Registry::capabilities().supportsDrawInstanced() )
+        return false;
 
     VirtualProgram* vp = VirtualProgram::getOrCreate(stateset);
     
     osgEarth::Shaders pkg;
-    pkg.loadFunction( vp, pkg.InstancingVertex );
+    pkg.load( vp, pkg.InstancingVertex );
 
     stateset->getOrCreateUniform("oe_di_postex_TBO", osg::Uniform::SAMPLER_BUFFER)->set(POSTEX_TBO_UNIT);
+
+    return true;
 }
 
 
@@ -259,16 +263,19 @@ DrawInstanced::remove(osg::StateSet* stateset)
         return;
 
     Shaders pkg;
-    pkg.unloadFunction( vp, pkg.InstancingVertex );
+    pkg.unload( vp, pkg.InstancingVertex );
 
     stateset->removeUniform("oe_di_postex_TBO");
     stateset->removeUniform("oe_di_postex_TBO_size");
 }
 
 
-void
+bool
 DrawInstanced::convertGraphToUseDrawInstanced( osg::Group* parent )
 {
+    if ( !Registry::capabilities().supportsDrawInstanced() )
+        return false;
+
     // place a static bounding sphere on the graph since we intend to alter
     // the structure of the subgraph.
     const osg::BoundingSphere& bs = parent->getBound();

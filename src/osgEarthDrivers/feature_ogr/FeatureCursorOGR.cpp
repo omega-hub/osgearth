@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -89,17 +89,18 @@ _filters          ( filters )
         std::string driverName = OGR_Dr_GetName( OGR_DS_GetDriver( dsHandle ) );             
         // Quote the layer name if it is a shapefile, so we can handle any weird filenames like those with spaces or hyphens.
         // Or quote any layers containing spaces for PostgreSQL
-        if (driverName == "ESRI Shapefile" || from.find(" ") != std::string::npos)
-        {                        
+        if (driverName == "ESRI Shapefile" || driverName == "VRT" ||
+            from.find(" ") != std::string::npos)
+        {
             std::string delim = "\"";
-            from = delim + from + delim;                    
+            from = delim + from + delim;
         }
 
-        if ( query.expression().isSet() )
+        if ( _query.expression().isSet() )
         {
             // build the SQL: allow the Query to include either a full SQL statement or
             // just the WHERE clause.
-            expr = query.expression().value();
+            expr = _query.expression().value();
 
             // if the expression is just a where clause, expand it into a complete SQL expression.
             std::string temp = osgEarth::toLower(expr);
@@ -121,9 +122,9 @@ _filters          ( filters )
         }
 
         //Include the order by clause if it's set
-        if (query.orderby().isSet())
+        if (_query.orderby().isSet())
         {                     
-            std::string orderby = query.orderby().value();
+            std::string orderby = _query.orderby().value();
             
             std::string temp = osgEarth::toLower(orderby);
 
@@ -138,15 +139,22 @@ _filters          ( filters )
             expr += (" " + orderby );
         }
 
+        // if the tilekey is set, convert it to feature profile coords
+        if ( _query.tileKey().isSet() && !_query.bounds().isSet() && profile )
+        {
+            GeoExtent localEx = _query.tileKey()->getExtent().transform( profile->getSRS() );
+            _query.bounds() = localEx.bounds();
+        }
+
         // if there's a spatial extent in the query, build the spatial filter:
-        if ( query.bounds().isSet() )
+        if ( _query.bounds().isSet() )
         {
             OGRGeometryH ring = OGR_G_CreateGeometry( wkbLinearRing );
-            OGR_G_AddPoint(ring, query.bounds()->xMin(), query.bounds()->yMin(), 0 );
-            OGR_G_AddPoint(ring, query.bounds()->xMin(), query.bounds()->yMax(), 0 );
-            OGR_G_AddPoint(ring, query.bounds()->xMax(), query.bounds()->yMax(), 0 );
-            OGR_G_AddPoint(ring, query.bounds()->xMax(), query.bounds()->yMin(), 0 );
-            OGR_G_AddPoint(ring, query.bounds()->xMin(), query.bounds()->yMin(), 0 );
+            OGR_G_AddPoint(ring, _query.bounds()->xMin(), _query.bounds()->yMin(), 0 );
+            OGR_G_AddPoint(ring, _query.bounds()->xMin(), _query.bounds()->yMax(), 0 );
+            OGR_G_AddPoint(ring, _query.bounds()->xMax(), _query.bounds()->yMax(), 0 );
+            OGR_G_AddPoint(ring, _query.bounds()->xMax(), _query.bounds()->yMin(), 0 );
+            OGR_G_AddPoint(ring, _query.bounds()->xMin(), _query.bounds()->yMin(), 0 );
 
             _spatialFilter = OGR_G_CreateGeometry( wkbPolygon );
             OGR_G_AddGeometryDirectly( _spatialFilter, ring ); 
@@ -236,7 +244,7 @@ FeatureCursorOGR::readChunk()
             }
             else
             {
-                OE_INFO << LC << "Skipping feature with invalid geometry: " << f->getGeoJSON() << std::endl;
+                OE_DEBUG << LC << "Skipping feature with invalid geometry: " << f->getGeoJSON() << std::endl;
             }
         }
         OGR_F_Destroy( _nextHandleToQueue );
@@ -265,7 +273,7 @@ FeatureCursorOGR::readChunk()
                 }
                 else
                 {
-                    OE_INFO << LC << "Skipping feature with invalid geometry: " << f->getGeoJSON() << std::endl;
+                    OE_DEBUG << LC << "Skipping feature with invalid geometry: " << f->getGeoJSON() << std::endl;
                 }
             }            
             OGR_F_Destroy( handle );

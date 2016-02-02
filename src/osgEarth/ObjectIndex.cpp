@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2015 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -37,17 +40,17 @@ using namespace osgEarth;
 namespace
 {
     const char* indexVertexInit =
-        "#version 330\n"
+        "#version " GLSL_VERSION_STR "\n"
 
-        "#pragma vp_entryPoint \"oe_index_setObjectID\" \n"
-        "#pragma vp_location   \"vertex_model\" \n"
-        "#pragma vp_order      \"first\" \n"
+        "#pragma vp_entryPoint oe_index_readObjectID \n"
+        "#pragma vp_location   vertex_model \n"
+        "#pragma vp_order      first \n"
 
         "uniform uint oe_index_objectid_uniform; \n"   // override objectid if > 0
         "in uint      oe_index_objectid_attr; \n"      // Vertex attribute containing the object ID.
         "uint         oe_index_objectid; \n"           // Stage global containing the Object ID.
 
-        "void oe_index_setObjectID(inout vec4 vertex) \n"
+        "void oe_index_readObjectID(inout vec4 vertex) \n"
         "{ \n"
         "    if ( oe_index_objectid_uniform > 0u ) \n"
         "        oe_index_objectid = oe_index_objectid_uniform; \n"

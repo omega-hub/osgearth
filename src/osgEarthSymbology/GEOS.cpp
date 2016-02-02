@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -160,7 +160,7 @@ namespace
                 //if ( seq )
                 //    delete seq;
 
-                OE_NOTICE << "GEOS::import: Removed degenerate geometry" << std::endl;
+                OE_DEBUG << "GEOS::import: Removed degenerate geometry" << std::endl;
             }
         }
 

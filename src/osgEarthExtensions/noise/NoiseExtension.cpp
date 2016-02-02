@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -18,6 +18,7 @@
  */
 #include "NoiseExtension"
 #include "NoiseTerrainEffect"
+#include <osgEarth/TerrainEngineNode>
 
 using namespace osgEarth;
 using namespace osgEarth::Noise;
@@ -56,7 +57,7 @@ NoiseExtension::connect(MapNode* mapNode)
         return false;
     }
 
-    _effect = new NoiseTerrainEffect( _dbOptions.get() );
+    _effect = new NoiseTerrainEffect( _options );
 
     mapNode->getTerrainEngine()->addEffect( _effect.get() );
     

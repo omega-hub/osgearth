@@ -45,9 +45,11 @@ SET(HEADERS_ROOT
     Ocean
     PolyhedralLineOfSight
     RadialLineOfSight
+    RTTPicker
     Shaders
 	Shadowing
 	SimplexNoise
+    SimplePager
     Sky
     SpatialData
     StarData
@@ -123,8 +125,10 @@ SET(SOURCES_ROOT
     Ocean.cpp
     PolyhedralLineOfSight.cpp
     RadialLineOfSight.cpp
+    RTTPicker.cpp
 	Shadowing.cpp
 	SimplexNoise.cpp
+    SimplePager.cpp
     SpatialData.cpp
     Sky.cpp
     TerrainProfile.cpp

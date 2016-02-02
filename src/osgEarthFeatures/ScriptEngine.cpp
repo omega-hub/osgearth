@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -104,6 +104,19 @@ ScriptEngineFactory::create( const Script& script, const std::string& engineName
   opts.script() = script;
 
   return create(opts, quiet);
+}
+
+ScriptEngine*
+ScriptEngineFactory::createWithProfile( const Script& script, const std::string& profile, const std::string& engineName, bool quiet)
+{
+  ScriptEngineOptions opts;
+  opts.setDriver(script.getLanguage() + (engineName.empty() ? "" : (std::string("_") + engineName)));
+  opts.script() = script;
+
+  ScriptEngine* e = create(opts, quiet);
+  if ( e )
+      e->setProfile( profile );
+  return e;
 }
 
 ScriptEngine*

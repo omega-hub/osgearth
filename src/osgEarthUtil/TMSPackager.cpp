@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -148,7 +148,7 @@ std::string WriteTMSTileHandler::getProcessString() const
     buf << "osgearth_package --tms ";
     if (imageLayer)
     {        
-        for (unsigned int i = 0; i < _map->getNumImageLayers(); i++)
+        for (int i = 0; i < _map->getNumImageLayers(); i++)
         {
             if (imageLayer == _map->getImageLayerAt(i))
             {
@@ -159,7 +159,7 @@ std::string WriteTMSTileHandler::getProcessString() const
     }
     else if (elevationLayer)
     {
-        for (unsigned int i = 0; i < _map->getNumElevationLayers(); i++)
+        for (int i = 0; i < _map->getNumElevationLayers(); i++)
         {
             if (elevationLayer == _map->getElevationLayerAt(i))
             {
@@ -316,7 +316,7 @@ void TMSPackager::run( TerrainLayer* layer,  Map* map  )
         {            
             layerName << "image";
             // Get the index of the layer
-            for (unsigned int i = 0; i < map->getNumImageLayers(); i++)
+            for (int i = 0; i < map->getNumImageLayers(); i++)
             {
                 if (map->getImageLayerAt(i) == imageLayer)
                 {
@@ -329,7 +329,7 @@ void TMSPackager::run( TerrainLayer* layer,  Map* map  )
         {
             layerName << "elevation";
             // Get the index of the layer
-            for (unsigned int i = 0; i < map->getNumElevationLayers(); i++)
+            for (int i = 0; i < map->getNumElevationLayers(); i++)
             {
                 if (map->getElevationLayerAt(i) == elevationLayer)
                 {

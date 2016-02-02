@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2015 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -45,6 +48,8 @@ using namespace std;
 using namespace osgEarth;
 using namespace osgEarth::Drivers;
 
+#include <osgEarth/Profiler>
+
 
 class FeatureElevationTileSource : public TileSource
 {
@@ -52,8 +57,10 @@ public:
     FeatureElevationTileSource( const TileSourceOptions& options ) :
       TileSource( options ),
       _options(options),
-      _maxDataLevel(30)
+      _maxDataLevel(23),
+      _offset(-0.1)
     {
+        _offset = _options.offset().getOrUse(_offset);
     }
 
     virtual ~FeatureElevationTileSource() { }
@@ -104,40 +111,43 @@ public:
         _features->initialize( _dbOptions );
 
         // populate feature list
-        osg::ref_ptr<FeatureCursor> cursor = _features->createFeatureCursor();
-        while ( cursor.valid() && cursor->hasMore() )
-        {
-            Feature* f = cursor->nextFeature();
-            if ( f && f->getGeometry() )
-                _featureList.push_back(f);
-        }
-
+        //osg::ref_ptr<FeatureCursor> cursor = _features->createFeatureCursor();
+        //while ( cursor.valid() && cursor->hasMore() )
+        //{
+        //    Feature* f = cursor->nextFeature();
+        //    if ( f && f->getGeometry() )
+        //        _featureList.push_back(f);
+        //}
         if (_features->getFeatureProfile())
         {
-            if (getProfile() && !getProfile()->getSRS()->isEquivalentTo(_features->getFeatureProfile()->getSRS()))
+			if (getProfile() && !getProfile()->getSRS()->isEquivalentTo(_features->getFeatureProfile()->getSRS()))
+            {
                 OE_WARN << LC << "Specified profile does not match feature profile, ignoring specified profile." << std::endl;
+            }
 
             _extents = _features->getFeatureProfile()->getExtent();
 
-            const Profile* profile = Profile::create(
-                _extents.getSRS(),
-                _extents.bounds().xMin(),
-                _extents.bounds().yMin(),
-                _extents.bounds().xMax(),
-                _extents.bounds().yMax());
+			// If you didn't specify a profile (hint, you should have), use the feature profile.
+			if ( !getProfile() )
+			{
+                OE_WARN << LC << "No profile specified; falling back on feature profile." << std::endl;
 
-            setProfile( profile );
-        }
-        else if (getProfile())
-        {
-            _extents = getProfile()->getExtent();
+				const Profile* profile = Profile::create(
+					_extents.getSRS(),
+					_extents.bounds().xMin(),
+					_extents.bounds().yMin(),
+					_extents.bounds().xMax(),
+					_extents.bounds().yMax());
+
+				setProfile( profile );
+			}
         }
         else
         {
             return Status::Error( Stringify() << "Failed to establish a profile for " <<  this->getName() );
         }
 
-        getDataExtents().push_back( DataExtent(_extents, 0, _maxDataLevel) );
+        //getDataExtents().push_back( DataExtent(_extents, 0, _maxDataLevel) );
 
         return STATUS_OK;
     }
@@ -166,51 +176,111 @@ public:
         hf->allocate(tileSize, tileSize);
         for (unsigned int i = 0; i < hf->getHeightList().size(); ++i) hf->getHeightList()[i] = NO_DATA_VALUE;
 
-        if (intersects(key))
+	    if (intersects(key))
         {
             //Get the extents of the tile
             double xmin, ymin, xmax, ymax;
             key.getExtent().getBounds(xmin, ymin, xmax, ymax);
 
-            // Iterate over the output heightfield and sample the data that was read into it.
-            double dx = (xmax - xmin) / (tileSize-1);
-            double dy = (ymax - ymin) / (tileSize-1);
+            const SpatialReference* featureSRS = _features->getFeatureProfile()->getSRS();
+            GeoExtent extentInFeatureSRS = key.getExtent().transform( featureSRS );
 
-            for (int c = 0; c < tileSize; ++c)
+            const SpatialReference* keySRS = key.getProfile()->getSRS();
+            
+            // populate feature list
+            // assemble a spatial query. It helps if your features have a spatial index.
+            Query query;
+            query.bounds() = extentInFeatureSRS.bounds();
+
+		    FeatureList featureList;
+            osg::ref_ptr<FeatureCursor> cursor = _features->createFeatureCursor(query);
+            while ( cursor.valid() && cursor->hasMore() )
             {
-                double geoX = xmin + (dx * (double)c);
-                for (int r = 0; r < tileSize; ++r)
-                {
-                    double geoY = ymin + (dy * (double)r);
-
-                    float h = NO_DATA_VALUE;
-
-
-                    for (FeatureList::iterator f = _featureList.begin(); f != _featureList.end(); ++f)
-                    {
-                        osgEarth::Symbology::Polygon* p = dynamic_cast<osgEarth::Symbology::Polygon*>((*f)->getGeometry());
-
-                        if (!p)
-                        {
-                            OE_WARN << LC << "NOT A POLYGON" << std::endl;
-                        }
-                        else
-                        {
-                            GeoPoint geo(key.getProfile()->getSRS(), geoX, geoY);
-                            if (!key.getProfile()->getSRS()->isEquivalentTo(getProfile()->getSRS()))
-                                geo.transform(getProfile()->getSRS());
-                            
-                            if (p->contains2D(geo.x(), geo.y()))
-                            {
-                                h = (*f)->getDouble(_options.attr().value());
-                                break;
-                            }
-                        }
-                    }
-
-                    hf->setHeight(c, r, h);
-                }
+                Feature* f = cursor->nextFeature();
+                if ( f && f->getGeometry() )
+                    featureList.push_back(f);
             }
+
+            // We now have a feature list in feature SRS.
+
+            bool transformRequired = !keySRS->isHorizEquivalentTo(featureSRS);
+		    
+			if (!featureList.empty())
+			{
+				// Iterate over the output heightfield and sample the data that was read into it.
+				double dx = (xmax - xmin) / (tileSize-1);
+				double dy = (ymax - ymin) / (tileSize-1);
+
+				for (int c = 0; c < tileSize; ++c)
+				{
+					double geoX = xmin + (dx * (double)c);
+					for (int r = 0; r < tileSize; ++r)
+					{
+						double geoY = ymin + (dy * (double)r);
+
+						float h = NO_DATA_VALUE;
+
+						for (FeatureList::iterator f = featureList.begin(); f != featureList.end(); ++f)
+						{
+							osgEarth::Symbology::Polygon* boundary = dynamic_cast<osgEarth::Symbology::Polygon*>((*f)->getGeometry());
+
+							if (!boundary)
+							{
+								OE_WARN << LC << "NOT A POLYGON" << std::endl;
+							}
+							else
+							{
+								GeoPoint geo(keySRS, geoX, geoY, 0.0, ALTMODE_ABSOLUTE);
+
+                                if ( transformRequired )
+                                    geo = geo.transform(featureSRS);
+
+								if ( boundary->contains2D(geo.x(), geo.y()) )
+								{
+                                    h = (*f)->getDouble(_options.attr().value());
+
+                                    if ( keySRS->isGeographic() )
+                                    {                              
+                                        // for a round earth, must adjust the final elevation accounting for the
+                                        // curvature of the earth; so we have to adjust it in the feature boundary's
+                                        // local tangent plane.
+                                        Bounds bounds = boundary->getBounds();
+                                        GeoPoint anchor( featureSRS, bounds.center().x(), bounds.center().y(), h, ALTMODE_ABSOLUTE );
+                                        if ( transformRequired )
+                                            anchor = anchor.transform(keySRS);
+
+                                        // For transforming between ECEF and local tangent plane:
+                                        osg::Matrix localToWorld, worldToLocal;
+                                        anchor.createLocalToWorld(localToWorld);
+                                        worldToLocal.invert( localToWorld );
+
+                                        // Get the ECEF location of the anchor point:
+                                        osg::Vec3d ecef;
+                                        geo.toWorld( ecef );
+
+                                        // Move it into Local Tangent Plane coordinates:
+                                        osg::Vec3d local = ecef * worldToLocal;
+
+                                        // Reset the Z to zero, since the LTP is centered on the "h" elevation:
+                                        local.z() = 0.0;
+
+                                        // Back into ECEF:
+                                        ecef = local * localToWorld;
+
+                                        // And back into lat/long/alt:
+                                        geo.fromWorld( geo.getSRS(), ecef);
+
+                                        h = geo.z();
+                                    }
+									break;
+								}
+							}
+						}
+
+						hf->setHeight(c, r, h + _offset);
+					}
+				}
+			}	
         }
         return hf.release();
     }
@@ -229,12 +299,13 @@ private:
     const FeatureElevationOptions _options;
 
     osg::ref_ptr<FeatureSource> _features;
-    FeatureList _featureList;
 
     osg::ref_ptr< CacheBin > _cacheBin;
     osg::ref_ptr< osgDB::Options > _dbOptions;
 
     unsigned int _maxDataLevel;
+
+    double _offset;
 };
 
 

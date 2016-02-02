@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -180,6 +180,12 @@ namespace osgEarth
         // called by Registry to register system units
         static void registerAll(class Registry* registry);
         friend class Registry;
+
+    public:
+
+        // returns 0 upon success, error code on failure
+        static int unitTest();
+
     };
     
     template<typename T>

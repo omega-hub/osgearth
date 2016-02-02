@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -107,10 +107,12 @@ Session::setStyles( StyleSheet* value )
     {
         if (_styles->script())
         {
-            _styleScriptEngine = ScriptEngineFactory::create( Script(
-                _styles->script()->code, 
-                _styles->script()->language, 
-                _styles->script()->name ) );
+            _styleScriptEngine = ScriptEngineFactory::createWithProfile(
+                Script(
+                    _styles->script()->code, 
+                    _styles->script()->language, 
+                    _styles->script()->name ),
+                _styles->script()->profile );
         }
         else
         {

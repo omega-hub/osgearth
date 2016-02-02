@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -23,6 +23,8 @@
 #include <osgEarth/Common>
 #include <osgEarth/CachePolicy>
 #include <osgEarth/SharedSARepo>
+#include <osgEarth/Containers>
+#include <osgEarth/TraversalData>
 #include <osgEarth/ShaderGenerator>
 #include <OpenThreads/ReentrantMutex>
 #include <OpenThreads/ScopedLock>
@@ -245,6 +247,16 @@ namespace osgEarth
         optional<bool>& unRefImageDataAfterApply() { return _unRefImageDataAfterApply; }
         const optional<bool>& unRefImageDataAfterApply() const { return _unRefImageDataAfterApply; }
 
+        /**
+         * Adds a texture image unit number that osgEarth should never use.
+         */
+        void setTextureImageUnitOffLimits(int unit);
+        const std::set<int> getOffLimitsTextureImageUnits() const;
+
+        /** General purpose transient data store to support VisitorData in pre-osg 3.4 */
+        TransientUserDataStore& dataStore() { return _dataStore; }
+        const TransientUserDataStore& dataStore() const { return _dataStore; }
+
     protected:
         virtual ~Registry();
         Registry();
@@ -259,7 +271,7 @@ namespace osgEarth
         osg::ref_ptr<const Profile> _spherical_mercator_profile;
         osg::ref_ptr<const Profile> _cube_profile;
 
-        Threading::ReadWriteMutex _regMutex;  
+        mutable Threading::ReadWriteMutex _regMutex;  
         int _numGdalMutexGets;
 
         osg::ref_ptr<Cache> _cache;
@@ -312,6 +324,10 @@ namespace osgEarth
         optional<bool> _unRefImageDataAfterApply;
 
         osg::ref_ptr<ObjectIndex> _objectIndex;
+
+        std::set<int> _offLimitsTextureImageUnits;
+
+        TransientUserDataStore _dataStore;
     };
 }
 

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2015 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,21 +8,25 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 #include <osgEarth/DrapingTechnique>
+#include <osgEarth/DrapingCullSet>
 #include <osgEarth/Capabilities>
 #include <osgEarth/Registry>
 #include <osgEarth/ShaderFactory>
 #include <osgEarth/VirtualProgram>
 #include <osgEarth/Shaders>
-#include <osgEarth/RTTPicker>
+#include <osgEarth/CullingUtils>
 
 #include <osg/BlendFunc>
 #include <osg/TexGen>
@@ -38,14 +42,51 @@ using namespace osgEarth;
 
 //---------------------------------------------------------------------------
 
+#undef  LC
+#define LC "[DrapingCamera] "
+
 namespace
 {
+    /**
+     * A camera that will traverse the per-thread DrapingCullSet instead of
+     * its own children.
+     */
+    class DrapingCamera : public osg::Camera
+    {
+    public:
+        DrapingCamera() : osg::Camera()
+        {
+            setCullingActive( false );
+        }
+
+    public: // osg::Node
+
+        void accept(osg::NodeVisitor& nv, const osg::Camera* camera)
+        {
+            _camera = camera;
+            osg::Camera::accept( nv );
+        }
+
+        void traverse(osg::NodeVisitor& nv)
+        {            
+            DrapingCullSet& cullSet = DrapingCullSet::get(_camera);
+            cullSet.accept( nv );
+        }
+
+    protected:
+        virtual ~DrapingCamera() { }
+        const osg::Camera* _camera;
+    };
+
+
     // Additional per-view data stored by the draping technique.
     struct LocalPerViewData : public osg::Referenced
     {
         osg::ref_ptr<osg::Uniform> _texGenUniform;
     };
 }
+
+//---------------------------------------------------------------------------
 
 namespace
 {
@@ -94,10 +135,7 @@ namespace
     void optimizeProjectionMatrix(OverlayDecorator::TechRTTParams& params, double maxFarNearRatio)
     {
         LocalPerViewData& local = *static_cast<LocalPerViewData*>(params._techniqueData.get());
-
-        //TODO: add this to the local
-        //local._rttLimitZ->set( 0.0f );
-
+        
         // t0,t1,t2,t3 will form a polygon that tightly fits the
         // main camera's frustum. Texture near the camera will get
         // more resolution then texture far away.
@@ -277,20 +315,13 @@ namespace
 
         // apply the result to the projection matrix.
         params._rttProjMatrix.postMult( M );
-
-        // btw, this new clip matrix distorts the Z coordinate as
-        // y approaches +1. That can cause bleed-through in a geocentric
-        // terrain from the other side of the globe. To prevent that, sample a 
-        // point at the near plane and record that as the Maximum allowable
-        // Z coordinate; a vertex shader in the RTT camera will enforce this.
-        osg::Vec4d sampleFar = osg::Vec4d(0,1,1,1) * M;
-
-        //TODO: add this to the shader.
-        //local._rttLimitZ->set( (float)sampleFar.z() );
     }
 }
 
 //---------------------------------------------------------------------------
+
+#undef  LC
+#define LC "[DrapingTechnique] "
 
 DrapingTechnique::DrapingTechnique() :
 _textureUnit     ( 1 ),
@@ -312,39 +343,7 @@ _maxFarNearRatio ( 5.0 )
 bool
 DrapingTechnique::hasData(OverlayDecorator::TechRTTParams& params) const
 {
-    return params._group->getNumChildren() > 0;
-}
-
-
-void
-DrapingTechnique::reestablish(TerrainEngineNode* engine)
-{
-    if ( !_textureUnit.isSet() )
-    {
-        // apply the user-request texture unit, if applicable:
-        if ( _explicitTextureUnit.isSet() )
-        {
-            if ( !_textureUnit.isSet() || *_textureUnit != *_explicitTextureUnit )
-            {
-                _textureUnit = *_explicitTextureUnit;
-            }
-        }
-
-        // otherwise, automatically allocate a texture unit if necessary:
-        else if ( !_textureUnit.isSet() )
-        {
-            int texUnit;
-            if ( engine->getResources()->reserveTextureImageUnit(texUnit, "DrapingTechnique") )
-            {
-                _textureUnit = texUnit;
-                OE_INFO << LC << "Reserved texture image unit " << *_textureUnit << std::endl;
-            }
-            else
-            {
-                OE_WARN << LC << "Uh oh, no texture image units available." << std::endl;
-            }
-        }
-    }
+    return getBound(params).valid();
 }
 
 
@@ -365,7 +364,7 @@ DrapingTechnique::setUpCamera(OverlayDecorator::TechRTTParams& params)
     projTexture->setBorderColor( osg::Vec4(0,0,0,0) );
 
     // set up the RTT camera:
-    params._rttCamera = new osg::Camera();
+    params._rttCamera = new DrapingCamera(); //new osg::Camera();
     params._rttCamera->setClearColor( osg::Vec4f(0,0,0,0) );
     // this ref frame causes the RTT to inherit its viewpoint from above (in order to properly
     // process PagedLOD's etc. -- it doesn't affect the perspective of the RTT camera though)
@@ -398,11 +397,11 @@ DrapingTechnique::setUpCamera(OverlayDecorator::TechRTTParams& params)
         }
 
         params._rttCamera->setClearStencil( 0 );
-        params._rttCamera->setClearMask( GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT ); //GL_DEPTH_BUFFER_BIT |  );
+        params._rttCamera->setClearMask( GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT );
     }
     else
     {
-        params._rttCamera->setClearMask( GL_COLOR_BUFFER_BIT ); //| GL_DEPTH_BUFFER_BIT );
+        params._rttCamera->setClearMask( GL_COLOR_BUFFER_BIT );
     }
 
     // set up a StateSet for the RTT camera.
@@ -456,10 +455,28 @@ DrapingTechnique::setUpCamera(OverlayDecorator::TechRTTParams& params)
     LocalPerViewData* local = new LocalPerViewData();
     params._techniqueData = local;
     
+    if ( _maxFarNearRatio > 1.0 )
+    {
+        // Custom clipper that accounts for the projection matrix warping.
+        // Without this, you will get geometry beyond the original ortho far plane.
+        // (i.e. geometry from beyond the horizon will show through the earth)
+        // When the projection matrix has been warped, verts with Z=1.0 are no longer
+        // always on the far plane (only when y=-1) because of the perspective divide (w).
+        // So we need to test the Z directly (without w) and clip. NOTE: this seems to work
+        // fine, although I think it would be proper to clip at the fragment level with 
+        // alpha. We shall see.
+        const char* warpClip =
+            "#version 330\n"
+            "void oe_overlay_warpClip(inout vec4 vclip) { \n"
+            "    if (vclip.z > 1.0) vclip.z = vclip.w+1.0; \n"
+            "} \n";
+        VirtualProgram* rtt_vp = VirtualProgram::getOrCreate(rttStateSet);
+        rtt_vp->setFunction( "oe_overlay_warpClip", warpClip, ShaderComp::LOCATION_VERTEX_CLIP );
+    }
 
     // Assemble the terrain shaders that will apply projective texturing.
     VirtualProgram* terrain_vp = VirtualProgram::getOrCreate(params._terrainStateSet);
-    terrain_vp->setName( "DrapingTechnique terrain shaders");
+    terrain_vp->setName( "Draping terrain shaders");
 
     // sampler for projected texture:
     params._terrainStateSet->getOrCreateUniform(
@@ -471,8 +488,8 @@ DrapingTechnique::setUpCamera(OverlayDecorator::TechRTTParams& params)
 
     // shaders
     Shaders pkg;
-    pkg.loadFunction( terrain_vp, pkg.DrapingVertex );
-    pkg.loadFunction( terrain_vp, pkg.DrapingFragment );
+    pkg.load( terrain_vp, pkg.DrapingVertex );
+    pkg.load( terrain_vp, pkg.DrapingFragment );
 }
 
 
@@ -480,12 +497,51 @@ void
 DrapingTechnique::preCullTerrain(OverlayDecorator::TechRTTParams& params,
                                  osgUtil::CullVisitor*             cv )
 {
-    if ( !params._rttCamera.valid() && params._group->getNumChildren() > 0 && _textureUnit.isSet() )
+    // allocate a texture image unit the first time through.
+    if ( !_textureUnit.isSet() )
+    {
+        static Threading::Mutex m;
+        m.lock();
+        if ( !_textureUnit.isSet() )
+        {
+            // apply the user-request texture unit, if applicable:
+            if ( _explicitTextureUnit.isSet() )
+            {
+                if ( !_textureUnit.isSet() || *_textureUnit != *_explicitTextureUnit )
+                {
+                    _textureUnit = *_explicitTextureUnit;
+                }
+            }
+
+            // otherwise, automatically allocate a texture unit if necessary:
+            else if ( !_textureUnit.isSet() )
+            {
+                int texUnit;
+                if ( params._terrainResources->reserveTextureImageUnit(texUnit, "Draping") )
+                {
+                    _textureUnit = texUnit;
+                    OE_INFO << LC << "Reserved texture image unit " << *_textureUnit << std::endl;
+                }
+                else
+                {
+                    OE_WARN << LC << "No texture image units available." << std::endl;
+                }
+            }
+        }
+        m.unlock();
+    }
+
+    if ( !params._rttCamera.valid() && _textureUnit.isSet() )
     {
         setUpCamera( params );
     }
 }
-
+       
+const osg::BoundingSphere&
+DrapingTechnique::getBound(OverlayDecorator::TechRTTParams& params) const
+{
+    return DrapingCullSet::get(params._mainCamera).getBound();
+}
 
 void
 DrapingTechnique::cullOverlayGroup(OverlayDecorator::TechRTTParams& params,
@@ -493,6 +549,8 @@ DrapingTechnique::cullOverlayGroup(OverlayDecorator::TechRTTParams& params,
 {
     if ( params._rttCamera.valid() )
     {
+        LocalPerViewData& local = *static_cast<LocalPerViewData*>(params._techniqueData.get());
+
         // this xforms from clip [-1..1] to texture [0..1] space
         static osg::Matrix s_scaleBiasMat = 
             osg::Matrix::translate(1.0,1.0,1.0) * 
@@ -508,8 +566,6 @@ DrapingTechnique::cullOverlayGroup(OverlayDecorator::TechRTTParams& params,
         params._rttCamera->setProjectionMatrix( params._rttProjMatrix );
 
         osg::Matrix VPT = params._rttViewMatrix * params._rttProjMatrix * s_scaleBiasMat;
-
-        LocalPerViewData& local = *static_cast<LocalPerViewData*>(params._techniqueData.get());
 
         if ( local._texGenUniform.valid() )
         {
@@ -531,7 +587,7 @@ DrapingTechnique::cullOverlayGroup(OverlayDecorator::TechRTTParams& params,
         }
 
         // traverse the overlay group (via the RTT camera).
-        params._rttCamera->accept( *cv );
+        static_cast<DrapingCamera*>(params._rttCamera.get())->accept( *cv, cv->getCurrentCamera() );
     }
 }
 

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2015 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -31,6 +34,58 @@
 
 namespace osgEarth
 {
+    template<typename DATA>
+    struct fast_set
+    {
+        typedef DATA                 entry_t;
+        typedef std::vector<entry_t> container_t;
+
+        container_t _data;
+
+        typedef typename container_t::iterator       iterator;
+        typedef typename container_t::const_iterator const_iterator;
+
+        iterator find(const DATA& value) {
+            for( iterator i = _data.begin(); i != _data.end(); ++i ) {
+                if ( (*i) == value ) {
+                    return i;
+                }
+            }
+            return _data.end();
+        }
+
+        const_iterator find(const DATA& value) const {
+            for( const_iterator i = _data.begin(); i != _data.end(); ++i ) {
+                if ( (*i) == value ) {
+                    return i;
+                }
+            }
+            return _data.end();
+        }
+
+        std::pair<iterator,bool> insert(const DATA& value) {
+            for( iterator i = _data.begin(); i != _data.end(); ++i ) {
+                if ( (*i) == value ) {
+                    *i = value;
+                    return std::make_pair(i, false);
+                }
+            }
+            _data.push_back(value);
+            iterator n = _data.end(); --n;
+            return std::make_pair(n, true);
+        }
+
+        const_iterator begin() const { return _data.begin(); }
+        const_iterator end() const { return _data.end(); }
+        iterator begin() { return _data.begin(); }
+        iterator end() { return _data.end(); }
+        bool empty() const { return _data.empty(); }
+        void clear() { _data.clear(); }        
+        void erase(iterator i) { _data.erase(i); }
+        void erase(const DATA& data) { iterator i = find(data); if (i != _data.end()) _data.erase(i); }
+        int size() const { return _data.size(); }
+    };
+
     /**
      * A std::map-like map that uses a vector and a getUID method for keying.
      * DATA must have a getUID() method.
@@ -42,7 +97,7 @@ namespace osgEarth
             inline const KEY&  key()  const { return _key; }
             inline const DATA& data() const { return _data; }
             inline DATA&       data()       { return _data; }
-            KEY   _key;
+            KEY  _key;
             DATA _data;
         };
         typedef std::vector<ENTRY> container_t;
@@ -62,7 +117,6 @@ namespace osgEarth
                 }
             }
             _container.resize(_container.size()+1);
-            //_container.push_back(ENTRY());
             _container.back()._key = key;
             return _container.back()._data;
         }
@@ -93,13 +147,6 @@ namespace osgEarth
         inline bool empty() const { return _container.empty(); }
 
         inline void clear() { _container.clear(); }
-        
-        //iterator erase(iterator& i) {
-        //    iterator j = i; ++j;
-        //    *i = _data.at(_data.size()-1);
-        //    _data.resize(_data.size()-1);
-        //    return j;
-        //}
 
         inline void erase(const KEY& key) {
             for(unsigned i=0; i<_container.size(); ++i) {
@@ -128,27 +175,19 @@ namespace osgEarth
     template<typename KEY, typename DATA>
     struct fast_map
     {
-        typedef std::pair<KEY,DATA> entry_t;
-        typedef std::list<entry_t>  list_t;
+        typedef std::pair<KEY,DATA>  entry_t;
+        typedef std::vector<entry_t> container_t;
 
-        typedef typename list_t::iterator       iterator;
-        typedef typename list_t::const_iterator const_iterator;
+        typedef typename container_t::iterator       iterator;
+        typedef typename container_t::const_iterator const_iterator;
 
-        list_t _data;
-        KEY    _lastKey;
+        container_t _data;
+        KEY         _lastKey;
 
         DATA& operator[] (const KEY& key) {
             for( iterator i = _data.begin(); i != _data.end(); ++i ) {
                 if ( i->first == key ) {
-                    if ( _lastKey == key && i != _data.begin() ) {
-                        _data.insert(begin(), *i);
-                        _data.erase(i);
-                        return _data.front().second;
-                    }
-                    else {
-                        _lastKey = key;
-                        return i->second;
-                    }
+                    return i->second;
                 }
             }
             _data.push_back(entry_t(key,DATA()));
@@ -180,9 +219,17 @@ namespace osgEarth
 
         bool empty() const { return _data.empty(); }
 
-        void clear() { _data.clear(); }
+        void clear() {
+            _data.clear();
+        }
         
-        iterator erase(iterator& i) { return _data.erase( i ); }
+        iterator erase(iterator i) {
+            return _data.erase( i );
+        }
+
+        iterator erase(iterator i0, iterator i1) {
+            return _data.erase(i0, i1);
+        }
 
         void erase(const KEY& key) {
             iterator i = find(key);

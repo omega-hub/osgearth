@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2015 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -28,18 +28,17 @@
 using namespace osgEarth_kml;
 
 void 
-KML_Geometry::build( xml_node<>* parent, KMLContext& cx, const Style& baseStyle)
+KML_Geometry::build( xml_node<>* parent, KMLContext& cx, Style& style)
 {
 	for (xml_node<>* node = parent->first_node(); node; node = node->next_sibling())
 	{
-		buildChild(node, cx, baseStyle);
+		buildChild(node, cx, style);
 	}
 }
 
 void
-KML_Geometry::buildChild( xml_node<>* node, KMLContext& cx, const Style& baseStyle)
+KML_Geometry::buildChild( xml_node<>* node, KMLContext& cx, Style& style)
 {
-    Style style = baseStyle;
 	std::string name = toLower(node->name());
     if ( name == "point" )
     {
@@ -74,14 +73,11 @@ KML_Geometry::buildChild( xml_node<>* node, KMLContext& cx, const Style& baseSty
         KML_MultiGeometry g;
         g.parseCoords(node, cx);
         _geom = g._geom.get();
-        g.parseStyle(node, cx, style);
         
         for( xml_node<>* n = node->first_node(); n; n = n->next_sibling())
         {
-            Style subStyle = style;
             KML_Geometry subGeom;
-            subGeom.parseStyle( n, cx, subStyle );
-            subGeom.buildChild( n, cx, style );
+            subGeom.buildChild( n, cx, style ); //use single style for all subgeometries
             if ( subGeom._geom.valid() )
                 dynamic_cast<MultiGeometry*>(g._geom.get())->getComponents().push_back( subGeom._geom.get() );
         }
@@ -148,7 +144,7 @@ KML_Geometry::parseStyle( xml_node<>* node, KMLContext& cx, Style& style )
 
     double maxElevation = -DBL_MAX;
 
-    if ( isPoly )
+    //if ( isPoly ) //compute maxElevation also for line strings for extrusion height
     {
         bool first = true;
         double e = 0.0;

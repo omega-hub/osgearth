@@ -10,7 +10,9 @@ MARK_AS_ADVANCED(CURL_IS_STATIC)
 ADD_DEFINITIONS(-DTIXML_USE_STL)
 
 IF(WIN32)
-    SET(CMAKE_SHARED_LINKER_FLAGS_DEBUG "${CMAKE_SHARED_LINKER_FLAGS_DEBUG} /NODEFAULTLIB:MSVCRT")
+    IF(MSVC)
+        SET(CMAKE_SHARED_LINKER_FLAGS_DEBUG "${CMAKE_SHARED_LINKER_FLAGS_DEBUG} /NODEFAULTLIB:MSVCRT")
+    ENDIF(MSVC)
     IF(CURL_IS_STATIC)
         ADD_DEFINITIONS(-DCURL_STATICLIB)
         SET(TARGET_EXTERNAL_LIBRARIES ws2_32 winmm wldap32)
@@ -62,11 +64,12 @@ SET(LIB_PUBLIC_HEADERS
     Cube
     CullingUtils
     DateTime
+	DateTimeRange
     Decluttering
     DepthOffset
     DPLineSegmentIntersector
-    Draggers
     DrapeableNode
+    DrapingCullSet
     DrapingTechnique
     DrawInstanced
     ECEF
@@ -108,6 +111,7 @@ SET(LIB_PUBLIC_HEADERS
     MaskLayer
     MaskNode
     MaskSource
+    Memory
     MemCache
     ModelLayer
     ModelSource
@@ -119,20 +123,22 @@ SET(LIB_PUBLIC_HEADERS
     OverlayDecorator
     OverlayNode
 	PhongLightingEffect
-    Pickers
+    Picker
+    IntersectionPicker
     PrimitiveIntersector
     Profile
     Profiler
     Progress
+	QuadTree
     Random
     Registry
     Revisioning
-    RTTPicker
     Shaders
     ShaderFactory
     ShaderGenerator
     ShaderLoader
     ShaderUtils
+    Shadowing
 	SharedSARepo
     SpatialReference
     StateSetCache
@@ -144,7 +150,12 @@ SET(LIB_PUBLIC_HEADERS
     TerrainLayer
     TerrainOptions
     TerrainEngineNode
+    TerrainEngineRequirements
+    TerrainTileModel
+    TerrainTileModelFactory
     TerrainTileNode
+    TileKeyDataStore
+    TilePatchCallback
     Tessellator
     TextureCompositor
     TileKey
@@ -214,11 +225,12 @@ set(TARGET_SRC
     Cube.cpp
     CullingUtils.cpp
     DateTime.cpp
+	DateTimeRange.cpp
     Decluttering.cpp
     DepthOffset.cpp
-    Draggers.cpp
     DPLineSegmentIntersector.cpp
     DrapeableNode.cpp
+    DrapingCullSet.cpp
     DrapingTechnique.cpp
     DrawInstanced.cpp
     ECEF.cpp
@@ -256,6 +268,7 @@ set(TARGET_SRC
     MaskNode.cpp
     MaskSource.cpp
     MemCache.cpp
+    Memory.cpp
     MimeTypes.cpp
     ModelLayer.cpp
     ModelSource.cpp
@@ -265,19 +278,20 @@ set(TARGET_SRC
     OverlayDecorator.cpp
     OverlayNode.cpp
 	PhongLightingEffect.cpp
-    Pickers.cpp
+    IntersectionPicker.cpp
     PrimitiveIntersector.cpp
     Profile.cpp
     Profiler.cpp
     Progress.cpp
+	QuadTree.cpp
     Random.cpp
     Registry.cpp
     Revisioning.cpp
-    RTTPicker.cpp
     ShaderFactory.cpp
     ShaderGenerator.cpp
     ShaderLoader.cpp
     ShaderUtils.cpp
+    Shadowing.cpp
     SpatialReference.cpp
     StateSetCache.cpp
 	StateSetLOD.cpp
@@ -287,10 +301,13 @@ set(TARGET_SRC
     TerrainLayer.cpp
     TerrainOptions.cpp
     TerrainEngineNode.cpp
+    TerrainTileModel.cpp
+    TerrainTileModelFactory.cpp
     Tessellator.cpp
     TextureCompositor.cpp
     TileKey.cpp
     TileHandler.cpp
+    TilePatchCallback.cpp
     TileVisitor.cpp
     TileSource.cpp
     TimeControl.cpp

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2015 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -120,6 +123,55 @@ namespace
         {
         }
     };
+
+#if 0
+    class NormalTexInstaller : public TerrainEngine::NodeCallback
+    {
+    public:
+        NormalTexInstaller(int unit) : _unit(unit) { }
+        
+    public: // TileNodeCallback
+        void operator()(const TileKey& key, osg::Node* node)
+        {
+            TileNode* tile = osgEarth::findTopMostNodeOfType<TileNode>(node);
+            if ( !tile )
+            {
+                OE_WARN << LC << "No tile " << key.str() << "\n";
+                return;
+            }
+
+            if ( !tile->getTileModel() )
+            {
+                OE_WARN << LC << "No tile model available for " << key.str() << "\n";
+                return;
+            }
+            
+            osg::StateSet* ss = node->getOrCreateStateSet();
+            osg::Texture* tex = tile->getTileModel()->getNormalTexture();
+            if ( tex )
+            {
+                ss->setTextureAttribute(_unit, tex);
+            }
+
+            osg::RefMatrixf* mat = tile->getModel()->getNormalTextureMatrix();
+            osg::Matrixf fmat;
+            if ( mat )
+            {
+                fmat = osg::Matrixf(*mat);
+            }
+            else
+            {
+                // special marker indicating that there's no valid normal texture.
+                fmat(0,0) = 0.0f;
+            }
+
+            ss->addUniform(new osg::Uniform("oe_tile_normalTexMatrix", fmat) );
+        }
+
+    private:
+        int _unit;
+    };
+#endif
 }
 
 //---------------------------------------------------------------------------
@@ -223,6 +275,14 @@ _stateUpdateRequired  ( false )
 
     // install an elevation callback so we can update elevation data
     _elevationCallback = new ElevationChangedCallback( this );
+
+    // install the static shader components now.
+    if ( osgEarth::Registry::capabilities().supportsGLSL() )
+    {
+        osg::StateSet* stateset = getOrCreateStateSet();
+        VirtualProgram* vp = VirtualProgram::getOrCreate(stateset);
+        includeShaderLibrary( vp );
+    }
 }
 
 MPTerrainEngineNode::~MPTerrainEngineNode()
@@ -236,6 +296,113 @@ MPTerrainEngineNode::~MPTerrainEngineNode()
     {
         delete _update_mapf;
     }
+}
+
+bool
+MPTerrainEngineNode::includeShaderLibrary(VirtualProgram* vp)
+{
+    static const char* libVS =
+        "#version 330\n"
+        "#pragma vp_name MP Terrain SDK (VS)\n"
+
+        "in vec4 oe_terrain_attr; \n"
+        "uniform vec4 oe_tile_key; \n"
+        "vec3 vp_Normal; \n"
+
+        "float oe_terrain_getElevation(in vec2 uv) \n"
+        "{ \n"
+        "    return oe_terrain_attr[3]; \n"
+        "} \n"
+
+        "float oe_terrain_getElevation() \n"
+        "{ \n"
+        "    return oe_terrain_attr[3]; \n"
+        "} \n"
+
+        "vec4 oe_terrain_getNormalAndCurvature(in vec2 uv) \n"
+        "{ \n"
+        "    return vec4(vp_Normal, 0.0); \n"
+        "} \n"
+
+        "vec2 oe_terrain_scaleCoordsToRefLOD(in vec2 uv, in float refLOD) \n"
+        "{ \n"
+        "    float dL = oe_tile_key.z - refLOD; \n"
+        "    float factor = exp2(dL); \n"
+        "    float invFactor = 1.0/factor; \n"
+        "    vec2 scale = vec2(invFactor); \n"
+        "    vec2 result = uv * scale; \n"
+        "    if ( factor >= 1.0 ) \n"
+        "    { \n"
+        "        vec2 a = floor(oe_tile_key.xy * invFactor); \n"
+        "        vec2 b = a * factor; \n"
+        "        vec2 c = (a+1.0) * factor; \n"
+        "        vec2 offset = (oe_tile_key.xy-b)/(c-b); \n"
+        "        result += offset; \n"
+        "    } \n"
+        "    return result; \n"
+        "} \n";
+
+    static const char* libFS =
+        "#version 330\n"
+        "#pragma vp_name MP Terrain SDK (FS)\n"
+
+        "uniform vec4 oe_tile_key; \n"
+        "vec3 vp_Normal; \n"
+        "in float oe_mp_terrainElev; // internal variable \n"
+
+        "float oe_terrain_getElevation(in vec2 uv) \n"
+        "{ \n"
+        "    return oe_mp_terrainElev; \n"
+        "} \n"
+
+        "float oe_terrain_getElevation() \n"
+        "{ \n"
+        "    return oe_mp_terrainElev; \n"
+        "} \n"
+
+        "vec4 oe_terrain_getNormalAndCurvature(in vec2 uv) \n"
+        "{ \n"
+        "    return vec4(vp_Normal, 0.0); \n"
+        "} \n"
+
+        "vec4 oe_terrain_getNormalAndCurvature() \n"
+        "{ \n"
+        "    return vec4(vp_Normal, 0.0); \n"
+        "} \n"
+
+        "vec2 oe_terrain_scaleCoordsToRefLOD(in vec2 uv, in float refLOD) \n"
+        "{ \n"
+        "    float dL = oe_tile_key.z - refLOD; \n"
+        "    float factor = exp2(dL); \n"
+        "    float invFactor = 1.0/factor; \n"
+        "    vec2 scale = vec2(invFactor); \n"
+        "    vec2 result = uv * scale; \n"
+        "    if ( factor >= 1.0 ) \n"
+        "    { \n"
+        "        vec2 a = floor(oe_tile_key.xy * invFactor); \n"
+        "        vec2 b = a * factor; \n"
+        "        vec2 c = (a+1.0) * factor; \n"
+        "        vec2 offset = (oe_tile_key.xy-b)/(c-b); \n"
+        "        result += offset; \n"
+        "    } \n"
+        "    return result; \n"
+        "} \n";
+
+    if ( vp )
+    {
+        osg::Shader* VS = new osg::Shader(osg::Shader::VERTEX, libVS);
+        VS->setName( "oe_terrain_SDK_mp_VS" );
+        vp->setShader( VS );
+        
+        osg::Shader* FS = new osg::Shader(osg::Shader::FRAGMENT, libFS);
+        FS->setName( "oe_terrain_SDK_mp_FS" );
+        vp->setShader( FS );
+
+        vp->addBindAttribLocation( "oe_terrain_attr",  osg::Drawable::ATTRIBUTE_6 );
+        vp->addBindAttribLocation( "oe_terrain_attr2", osg::Drawable::ATTRIBUTE_7 );
+    }
+
+    return (vp != 0L);
 }
 
 void
@@ -253,7 +420,7 @@ MPTerrainEngineNode::postInitialize( const Map* map, const TerrainOptions& optio
     // Initialize the map frames. We need one for the update thread and one for the
     // cull thread. Someday we can detect whether these are actually the same thread
     // (depends on the viewer's threading mode).
-    _update_mapf = new MapFrame( map, Map::ENTIRE_MODEL, "mp-update" );
+    _update_mapf = new MapFrame( map, Map::ENTIRE_MODEL );
 
     // merge in the custom options:
     _terrainOptions.merge( options );
@@ -287,6 +454,14 @@ MPTerrainEngineNode::postInitialize( const Map* map, const TerrainOptions& optio
     
     // initialize the model factory:
     _tileModelFactory = new TileModelFactory(_liveTiles.get(), _terrainOptions, this);
+
+    // Normal map texture unit
+    if ( _terrainOptions.normalMaps() == true )
+    {
+        this->_requireNormalTextures = true;
+        getResources()->reserveTextureImageUnit( _normalMapUnit, "MP Normal Maps" );
+        _tileModelFactory->setNormalMapUnit( _normalMapUnit );
+    }
 
     // handle an already-established map profile:
     if ( _update_mapf->getProfile() )
@@ -405,9 +580,9 @@ namespace
 {
     struct NotifyExistingNodesOp : public TileNodeRegistry::Operation
     {
-        TerrainTileNodeCallback* _cb;
+        TerrainEngine::NodeCallback* _cb;
 
-        NotifyExistingNodesOp(TerrainTileNodeCallback* cb) : _cb(cb) { }
+        NotifyExistingNodesOp(TerrainEngine::NodeCallback* cb) : _cb(cb) { }
 
         void operator()(TileNodeRegistry::TileNodeMap& tiles)
         {
@@ -424,7 +599,7 @@ namespace
 }
 
 void
-MPTerrainEngineNode::notifyExistingNodes(TerrainTileNodeCallback* cb)
+MPTerrainEngineNode::notifyExistingNodes(TerrainEngine::NodeCallback* cb)
 {
     NotifyExistingNodesOp op( cb );
     _liveTiles->run( op );
@@ -463,41 +638,46 @@ MPTerrainEngineNode::dirtyTerrain()
 #endif
 
     this->addChild( _terrain );
-
-    // Factory to create the root keys:
-    KeyNodeFactory* factory = getKeyNodeFactory();
-    
     // Build the first level of the terrain.
     // Collect the tile keys comprising the root tiles of the terrain.
-    std::vector< TileKey > keys;
-    _update_mapf->getProfile()->getAllKeysAtLOD( *_terrainOptions.firstLOD(), keys );
-
-    // create a root node for each root tile key.
-    OE_INFO << LC << "Creating " << keys.size() << " root keys.." << std::endl;
-
-    TilePagedLOD* root = new TilePagedLOD( _uid, _liveTiles, _deadTiles );
-    _terrain->addChild( root );
-
-    osg::ref_ptr<osgDB::Options> dbOptions = Registry::instance()->cloneOrCreateOptions();
-
-    unsigned child = 0;
-    for( unsigned i=0; i<keys.size(); ++i )
+    if ( _update_mapf )
     {
-        osg::ref_ptr<osg::Node> node = factory->createNode( keys[i], true, true, 0L );
-        if ( node.valid() )
-        {
-            root->addChild( node.get() );
-            root->setRange( child++, 0.0f, FLT_MAX );
-            root->setCenter( node->getBound().center() );
-            root->setNumChildrenThatCannotBeExpired( child );
-        }
-        else
-        {
-            OE_WARN << LC << "Couldn't make tile for root key: " << keys[i].str() << std::endl;
-        }
-    }
+        // Factory to create the root keys:
+        KeyNodeFactory* factory = getKeyNodeFactory();
+    
+        std::vector< TileKey > keys;
+        _update_mapf->getProfile()->getAllKeysAtLOD( *_terrainOptions.firstLOD(), keys );
 
-    _rootTilesRegistered = false;
+        // create a root node for each root tile key.
+        OE_INFO << LC << "Creating " << keys.size() << " root keys.." << std::endl;
+
+        TilePagedLOD* root = new TilePagedLOD( _uid, _liveTiles, _deadTiles );
+        _terrain->addChild( root );
+
+        osg::ref_ptr<osgDB::Options> dbOptions = Registry::instance()->cloneOrCreateOptions();
+
+        // Accumulate data from low to high resolution when necessary:
+        bool accumulate = true;
+
+        unsigned child = 0;
+        for( unsigned i=0; i<keys.size(); ++i )
+        {
+            osg::ref_ptr<osg::Node> node = factory->createNode( keys[i], accumulate, true, 0L );
+            if ( node.valid() )
+            {
+                root->addChild( node.get() );
+                root->setRange( child++, 0.0f, FLT_MAX );
+                root->setCenter( node->getBound().center() );
+                root->setNumChildrenThatCannotBeExpired( child );
+            }
+            else
+            {
+                OE_WARN << LC << "Couldn't make tile for root key: " << keys[i].str() << std::endl;
+            }
+        }
+
+        _rootTilesRegistered = false;
+    }
 
     updateState();
 
@@ -528,28 +708,6 @@ MPTerrainEngineNode::traverse(osg::NodeVisitor& nv)
 {
     if ( nv.getVisitorType() == nv.CULL_VISITOR )
     {
-
-#if 0 // believe this is now unnecessary
-
-        // since the root tiles are manually added, the pager never has a chance to 
-        // register the PagedLODs in their children. So we have to do it manually here.
-        if ( !_rootTilesRegistered )
-        {
-            Threading::ScopedMutexLock lock(_rootTilesRegisteredMutex);
-
-            if ( !_rootTilesRegistered )
-            {
-                osgDB::DatabasePager* pager = dynamic_cast<osgDB::DatabasePager*>(nv.getDatabaseRequestHandler());
-                if ( pager )
-                {
-                    //OE_WARN << "Registering plods." << std::endl;
-                    pager->registerPagedLODs( _terrain );
-                    _rootTilesRegistered = true;
-                }
-            }
-        }
-#endif
-
         // Inform the registry of the current frame so that Tiles have access
         // to the information.
         if ( _liveTiles.valid() && nv.getFrameStamp() )
@@ -597,7 +755,6 @@ MPTerrainEngineNode::getKeyNodeFactory()
             _liveTiles.get(),
             _deadTiles.get(),
             _terrainOptions,
-            _uid,
             this );
     }
 
@@ -615,11 +772,11 @@ MPTerrainEngineNode::createNode(const TileKey&    key,
 
     OE_DEBUG << LC << "Create node for \"" << key.str() << "\"" << std::endl;
 
-    // create the node:
-    osg::ref_ptr<osg::Node> node = getKeyNodeFactory()->createNode( key, true, true, progress );
+    bool accumulate    = true;  // use parent data to help build tiles if neccesary
+    bool setupChildren = true;  // prepare the tile for subdivision
 
-    // notify anyone listening of the new node:
-    //this->notifyOfTileNode( key, node.get() );
+    // create the node:
+    osg::ref_ptr<osg::Node> node = getKeyNodeFactory()->createNode(key, accumulate, setupChildren, progress);
 
     // release the reference and return it.
     return node.release();
@@ -661,7 +818,7 @@ MPTerrainEngineNode::createTile( const TileKey& key )
     {
         while (!populated)
         {
-            populated = _update_mapf->populateHeightField(hf, sampleKey, true, SAMPLE_FIRST_VALID);
+            populated = _update_mapf->populateHeightField(hf, sampleKey, true, 0L);
             if (!populated)
             {
                 // Fallback on the parent
@@ -677,23 +834,24 @@ MPTerrainEngineNode::createTile( const TileKey& key )
     if (!populated)
     {
         // We have no heightfield so just create a reference heightfield.
-        hf = HeightFieldUtils::createReferenceHeightField( key.getExtent(), 15, 15 );
+        int tileSize = _terrainOptions.tileSize().get();
+        hf = HeightFieldUtils::createReferenceHeightField( key.getExtent(), tileSize, tileSize );
         sampleKey = key;
     }
 
     model->_elevationData = TileModel::ElevationData(
-            hf,
-            GeoLocator::createForKey( sampleKey, mapInfo ),
-            false );        
+        hf,
+        GeoLocator::createForKey( sampleKey, mapInfo ),
+        false );        
 
     bool optimizeTriangleOrientation = getMap()->getMapOptions().elevationInterpolation() != INTERP_TRIANGULATE;
 
     osg::ref_ptr<TileModelCompiler> compiler = new TileModelCompiler(
-            _update_mapf->terrainMaskLayers(),
-            _update_mapf->modelLayers(),
-            _primaryUnit,
-            optimizeTriangleOrientation,
-            _terrainOptions );
+        _update_mapf->terrainMaskLayers(),
+        _update_mapf->modelLayers(),
+        _primaryUnit,
+        optimizeTriangleOrientation,
+        _terrainOptions );
 
     return compiler->compile(model.get(), *_update_mapf, 0L);
 }
@@ -796,7 +954,8 @@ MPTerrainEngineNode::addImageLayer( ImageLayer* layerAdded )
             optional<std::string>& texMatUniformName = layerAdded->shareTexMatUniformName();
             if ( !texMatUniformName.isSet() )
             {
-                texMatUniformName = Stringify() << "oe_layer_" << layerAdded->getUID() << "_texmat";
+                texMatUniformName = Stringify() << "oe_layer_" << layerAdded->getUID() << "_texMatrix";
+                OE_INFO << LC << "Layer \"" << layerAdded->getName() << "\" texmat uniform = \"" << texMatUniformName.get() << "\"\n";
             }
         }
     }
@@ -881,6 +1040,8 @@ MPTerrainEngineNode::updateState()
         }
 
         osg::StateSet* terrainStateSet = getTerrainStateSet();
+        if ( !terrainStateSet )
+            return;
         
         // required for multipass tile rendering to work
         terrainStateSet->setAttributeAndModes(
@@ -898,10 +1059,6 @@ MPTerrainEngineNode::updateState()
             vp->setName( "osgEarth.engine_mp.TerrainNode" );
             terrainStateSet->setAttributeAndModes( vp, osg::StateAttribute::ON );
 
-            // bind the vertex attributes generated by the tile compiler.
-            vp->addBindAttribLocation( "oe_terrain_attr",  osg::Drawable::ATTRIBUTE_6 );
-            vp->addBindAttribLocation( "oe_terrain_attr2", osg::Drawable::ATTRIBUTE_7 );
-
             Shaders package;
 
             package.replace( "$MP_PRIMARY_UNIT",   Stringify() << _primaryUnit );
@@ -909,77 +1066,86 @@ MPTerrainEngineNode::updateState()
 
             package.define( "MP_USE_BLENDING", (_terrainOptions.enableBlending() == true) );
 
-            package.loadFunction( vp, package.VertexModel );
-            package.loadFunction( vp, package.VertexView );
-            package.loadFunction( vp, package.Fragment );
+            package.load( vp, package.EngineVertexModel );
+            package.load( vp, package.EngineVertexView );
+            package.load( vp, package.EngineFragment );
             
+            if ( this->normalTexturesRequired() )
+            {
+                package.load( vp, package.NormalMapVertex );
+                package.load( vp, package.NormalMapFragment );
+
+                terrainStateSet->addUniform( new osg::Uniform("oe_tile_normalTex", _normalMapUnit) );
+            }
 
             // terrain background color; negative means use the vertex color.
             Color terrainColor = _terrainOptions.color().getOrUse( Color(1,1,1,-1) );
             terrainStateSet->addUniform(new osg::Uniform("oe_terrain_color", terrainColor));
 
-            
-            // assemble color filter code snippets.
-            bool haveColorFilters = false;
+            if ( _update_mapf )
             {
-                // Color filter frag function:
-                std::string fs_colorfilters =
-                    "#version " GLSL_VERSION_STR "\n"
-                    GLSL_DEFAULT_PRECISION_FLOAT "\n"
-                    "uniform int oe_layer_uid; \n"
-                    "$COLOR_FILTER_HEAD"
-                    "void oe_mp_apply_filters(inout vec4 color) \n"
-                    "{ \n"
-                        "$COLOR_FILTER_BODY"
-                    "} \n";
-
-                std::stringstream cf_head;
-                std::stringstream cf_body;
-                const char* I = "    ";
-
-                // second, install the per-layer color filter functions AND shared layer bindings.
-                bool ifStarted = false;
-                int numImageLayers = _update_mapf->imageLayers().size();
-                for( int i=0; i<numImageLayers; ++i )
+                // assemble color filter code snippets.
+                bool haveColorFilters = false;
                 {
-                    ImageLayer* layer = _update_mapf->getImageLayerAt(i);
-                    if ( layer->getEnabled() )
+                    // Color filter frag function:
+                    std::string fs_colorfilters =
+                        "#version " GLSL_VERSION_STR "\n"
+                        GLSL_DEFAULT_PRECISION_FLOAT "\n"
+                        "uniform int oe_layer_uid; \n"
+                        "$COLOR_FILTER_HEAD"
+                        "void oe_mp_apply_filters(inout vec4 color) \n"
+                        "{ \n"
+                            "$COLOR_FILTER_BODY"
+                        "} \n";
+
+                    std::stringstream cf_head;
+                    std::stringstream cf_body;
+                    const char* I = "    ";
+
+                    // second, install the per-layer color filter functions AND shared layer bindings.
+                    bool ifStarted = false;
+                    int numImageLayers = _update_mapf->imageLayers().size();
+                    for( int i=0; i<numImageLayers; ++i )
                     {
-                        // install Color Filter function calls:
-                        const ColorFilterChain& chain = layer->getColorFilters();
-                        if ( chain.size() > 0 )
+                        ImageLayer* layer = _update_mapf->getImageLayerAt(i);
+                        if ( layer->getEnabled() )
                         {
-                            haveColorFilters = true;
-                            if ( ifStarted ) cf_body << I << "else if ";
-                            else             cf_body << I << "if ";
-                            cf_body << "(oe_layer_uid == " << layer->getUID() << ") {\n";
-                            for( ColorFilterChain::const_iterator j = chain.begin(); j != chain.end(); ++j )
+                            // install Color Filter function calls:
+                            const ColorFilterChain& chain = layer->getColorFilters();
+                            if ( chain.size() > 0 )
                             {
-                                const ColorFilter* filter = j->get();
-                                cf_head << "void " << filter->getEntryPointFunctionName() << "(inout vec4 color);\n";
-                                cf_body << I << I << filter->getEntryPointFunctionName() << "(color);\n";
-                                filter->install( terrainStateSet );
+                                haveColorFilters = true;
+                                if ( ifStarted ) cf_body << I << "else if ";
+                                else             cf_body << I << "if ";
+                                cf_body << "(oe_layer_uid == " << layer->getUID() << ") {\n";
+                                for( ColorFilterChain::const_iterator j = chain.begin(); j != chain.end(); ++j )
+                                {
+                                    const ColorFilter* filter = j->get();
+                                    cf_head << "void " << filter->getEntryPointFunctionName() << "(inout vec4 color);\n";
+                                    cf_body << I << I << filter->getEntryPointFunctionName() << "(color);\n";
+                                    filter->install( terrainStateSet );
+                                }
+                                cf_body << I << "}\n";
+                                ifStarted = true;
                             }
-                            cf_body << I << "}\n";
-                            ifStarted = true;
                         }
                     }
-                }
 
-                if ( haveColorFilters )
-                {
-                    std::string cf_head_str, cf_body_str;
-                    cf_head_str = cf_head.str();
-                    cf_body_str = cf_body.str();
+                    if ( haveColorFilters )
+                    {
+                        std::string cf_head_str, cf_body_str;
+                        cf_head_str = cf_head.str();
+                        cf_body_str = cf_body.str();
 
-                    replaceIn( fs_colorfilters, "$COLOR_FILTER_HEAD", cf_head_str );
-                    replaceIn( fs_colorfilters, "$COLOR_FILTER_BODY", cf_body_str );
+                        replaceIn( fs_colorfilters, "$COLOR_FILTER_HEAD", cf_head_str );
+                        replaceIn( fs_colorfilters, "$COLOR_FILTER_BODY", cf_body_str );
 
-                    vp->setFunction(
-                        "oe_mp_apply_filters",
-                        fs_colorfilters,
-                        ShaderComp::LOCATION_FRAGMENT_COLORING,
-                        0.5f );
+                        vp->setFunction(
+                            "oe_mp_apply_filters",
+                            fs_colorfilters,
+                            ShaderComp::LOCATION_FRAGMENT_COLORING,
+                            0.5f );
+                    }
                 }
             }
 
@@ -1024,7 +1190,8 @@ MPTerrainEngineNode::updateState()
 
             // default min/max range uniforms. (max < min means ranges are disabled)
             terrainStateSet->addUniform( new osg::Uniform("oe_layer_minRange", 0.0f) );
-            terrainStateSet->addUniform( new osg::Uniform("oe_layer_maxRange", -1.0f) );
+            terrainStateSet->addUniform( new osg::Uniform("oe_layer_maxRange", FLT_MAX) );
+            terrainStateSet->addUniform( new osg::Uniform("oe_layer_attenuationRange", _terrainOptions.attentuationDistance().get()) );
             
             terrainStateSet->getOrCreateUniform(
                 "oe_min_tile_range_factor",
@@ -1035,16 +1202,19 @@ MPTerrainEngineNode::updateState()
                 Registry::objectIndex()->getObjectIDUniformName().c_str(), OSGEARTH_OBJECTID_TERRAIN) );
 
             // assign the uniforms for each shared layer.
-            int numImageLayers = _update_mapf->imageLayers().size();
-            for( int i=0; i<numImageLayers; ++i )
+            if ( _update_mapf )
             {
-                ImageLayer* layer = _update_mapf->getImageLayerAt(i);
-                if ( layer->getEnabled() && layer->isShared() )
+                int numImageLayers = _update_mapf->imageLayers().size();
+                for( int i=0; i<numImageLayers; ++i )
                 {
-                    terrainStateSet->addUniform( new osg::Uniform(
-                        layer->shareTexUniformName()->c_str(),
-                        layer->shareImageUnit().get() ) );
+                    ImageLayer* layer = _update_mapf->getImageLayerAt(i);
+                    if ( layer->getEnabled() && layer->isShared() )
+                    {
+                        terrainStateSet->addUniform( new osg::Uniform(
+                            layer->shareTexUniformName()->c_str(),
+                            layer->shareImageUnit().get() ) );
                         
+                    }
                 }
             }
         }
